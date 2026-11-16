@@ -1,10 +1,39 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
+import adelaProfileImage from './img/artist/adéla/icons/adela_profile.jpg';
+import arianaGrandeProfileImage from './img/artist/ariana grande/icon/ariana grande icon.jpg';
+import slayyyterProfileImage from './img/artist/slayyyter/slayyyter-profile.jpg';
+import slayyyterAlbumCover from './img/artist/slayyyter/worstmaninamerica_cover.jpg';
+import imagePlaceholder from './img/musicfy-image-placeholder.svg';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
 });
+
+const getArtistFallbackImage = (artist) => {
+  const name = String(artist?.name || '').trim().toLocaleLowerCase();
+  if (name === 'adéla') return adelaProfileImage;
+  if (name === 'ariana grande') return arianaGrandeProfileImage;
+  if (name === 'slayyyter') return slayyyterProfileImage;
+  return imagePlaceholder;
+};
+
+const getReleaseFallbackImage = (release) => (
+  String(release?.title || '').trim().toLocaleLowerCase() === 'wor$t girl in america'
+    ? slayyyterAlbumCover
+    : imagePlaceholder
+);
+
+const handleImageError = (event, fallbackImage) => {
+  const image = event.currentTarget;
+  const fallbackUrl = new URL(fallbackImage, window.location.href).toString();
+  if (image.src === fallbackUrl) {
+    image.removeAttribute('src');
+    return;
+  }
+  image.src = fallbackImage;
+};
 
 const uploadImage = async (file) => {
   const formData = new FormData();
@@ -276,7 +305,7 @@ function HomePage() {
         {featured[0] && (
           <div className="featured-showcase">
             <Link to={`/releases/${featured[0].id}`} className="featured-hero-card glass-panel">
-              <img src={featured[0].cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={featured[0].title} />
+              <img src={featured[0].cover_url || getReleaseFallbackImage(featured[0])} onError={(event) => handleImageError(event, getReleaseFallbackImage(featured[0]))} alt={featured[0].title} />
               <div className="featured-hero-overlay" />
               <div className="featured-hero-copy">
                 <div className="featured-hero-title-block">
@@ -294,7 +323,7 @@ function HomePage() {
           <div className="featured-mini-grid">
             {featured.slice(1, 4).map((item) => (
               <Link key={item.id} to={`/releases/${item.id}`} className="featured-mini-card glass-panel">
-                <img src={item.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={item.title} />
+                <img src={item.cover_url || getReleaseFallbackImage(item)} onError={(event) => handleImageError(event, getReleaseFallbackImage(item))} alt={item.title} />
                 <div className="featured-mini-copy">
                   <strong>{item.title}</strong>
                   <span>{item.artist_name}</span>
@@ -337,7 +366,7 @@ function HomePage() {
             <div key={review.id} className="review-feed-item glass-panel">
               <div className="review-head">
                 <div className="mini-user">
-                  <img src={review.avatar_url || 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80'} alt={review.username} />
+                  <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={review.username} />
                   <div>
                     <strong>{review.username}</strong>
                     <span>{review.release_title}</span>
@@ -431,11 +460,12 @@ function ArtistDetailPage() {
         <img
           className="artist-hero-media"
           src={artistData.artist.banner_url || artistData.artist.image_url}
+          onError={(event) => handleImageError(event, getArtistFallbackImage(artistData.artist))}
           alt=""
           aria-hidden="true"
         />
         <div className="artist-header-copy">
-          <img src={artistData.artist.image_url} alt={artistData.artist.name} />
+          <img src={artistData.artist.image_url || getArtistFallbackImage(artistData.artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artistData.artist))} alt={artistData.artist.name} />
           <div>
             <p className="eyebrow">Artista</p>
             <h1>{artistData.artist.name}</h1>
@@ -473,7 +503,7 @@ function ArtistDetailPage() {
           {artistData.releases.length ? artistData.releases.map((release, index) => (
             <Link key={release.id} to={`/releases/${release.id}`} className="artist-release-row">
               <span className="artist-release-rank">{index + 1}</span>
-              <img src={release.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt="" />
+              <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
               <span className="artist-release-copy">
                 <strong>{release.title}</strong>
                 <small>{release.release_type} <span aria-hidden="true">•</span> {release.release_date}</small>
@@ -498,7 +528,7 @@ function ArtistDetailPage() {
 function ReleaseCard({ release, showListen = false }) {
   return (
     <Link to={`/releases/${release.id}`} className="release-card glass-panel">
-      <img src={release.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={release.title} />
+      <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
       <div className="release-meta">
         <span>{release.release_type}</span>
         <h3>{release.title}</h3>
@@ -515,7 +545,7 @@ function ArtistCard({ artist }) {
 
   return (
     <Link to={`/artists/${artist.id}`} className="artist-card">
-      <img src={artist.image_url || 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80'} alt={artist.name} />
+      <img src={artist.image_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt={artist.name} />
       <div>
         <h3>{artist.name}</h3>
         <p>{artist.genre_names || artist.genre || 'Artista independente'}</p>
@@ -656,7 +686,7 @@ function ReleaseDetailPage() {
   return (
     <div className="content-stack release-view">
       <div className="release-detail glass-panel">
-        <img src={release.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={release.title} />
+        <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
         <div className="release-copy-wrap">
           <p className="eyebrow">{release.release_type}</p>
           <h1>{release.title}</h1>
@@ -795,7 +825,7 @@ function ReleaseDetailPage() {
             </button>
 
             <aside className="lyrics-viewer-aside">
-              <img src={release.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={`Capa de ${release.title}`} />
+              <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={`Capa de ${release.title}`} />
               <div className="lyrics-viewer-track-info">
                 <p className="lyrics-viewer-eyebrow">FAIXA {selectedLyricsTrack.track_number} · {selectedLyricsTrack.duration}</p>
                 <h2>{selectedLyricsTrack.title}</h2>
@@ -898,7 +928,7 @@ function ReleaseDetailPage() {
             <div key={review.id} className="review-feed-item glass-panel">
               <div className="review-head">
                 <div className="mini-user">
-                  <img src={review.avatar_url || 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80'} alt={review.username} />
+                  <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={review.username} />
                   <div>
                     <strong>{review.username}</strong>
                     <span>{review.created_at}</span>
@@ -969,7 +999,7 @@ function ProfilePage() {
     <div className="content-stack">
       <div className="profile-hero glass-panel" style={{ backgroundImage: `url(${profile.user.banner_url || 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80'})` }}>
         <div className="profile-copy">
-          <img src={profile.user.avatar_url} alt={profile.user.username} />
+          <img src={profile.user.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={profile.user.username} />
           <div>
             <h1>{profile.user.full_name}</h1>
             <p>@{profile.user.username}</p>
@@ -1066,7 +1096,7 @@ function ProfilePage() {
           <div className="card-grid">
             {profile.playlists.map((playlist) => (
               <div key={playlist.id} className="release-card glass-panel">
-                <img src={playlist.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={playlist.name} />
+                <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={playlist.name} />
                 <div className="release-meta">
                   <h3>{playlist.name}</h3>
                   <p>{playlist.description || 'Playlist pessoal'}</p>
@@ -1690,7 +1720,7 @@ function AdminPage() {
         <div className="admin-list-grid">
           {artistList.map((artist) => (
             <div key={artist.id} className="admin-list-item">
-              <img src={artist.image_url || artist.banner_url || 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80'} alt={artist.name} />
+              <img src={artist.image_url || artist.banner_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt={artist.name} />
               <div>
                 <strong>{artist.name}</strong>
                 <small>{artist.genre_names || artist.genre || 'Sem gênero'}</small>
@@ -1711,7 +1741,7 @@ function AdminPage() {
         <div className="admin-list-grid">
           {releaseList.map((release) => (
             <div key={release.id} className="admin-list-item">
-              <img src={release.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={release.title} />
+              <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
               <div>
                 <strong>{release.title}</strong>
                 <small>{release.artist_name} • {release.release_type}</small>
