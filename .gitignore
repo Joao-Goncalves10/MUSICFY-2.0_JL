@@ -2,5 +2,9 @@ node_modules/
 dist/
 .env
 server/data/*.db
+<<<<<<< HEAD
+server/data/*.sql
+=======
 server/uploads/
+>>>>>>> 85249e7c79ea5077a41f97740c6d34c51c5f783c
 npm-debug.log*
