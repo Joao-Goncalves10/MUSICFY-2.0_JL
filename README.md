@@ -82,6 +82,10 @@ The Render health check uses `/api/health`. On the free plan, the filesystem is 
 
 The first database startup creates the admin account using `MUSICFY_ADMIN_USERNAME`, `MUSICFY_ADMIN_EMAIL`, `MUSICFY_ADMIN_NAME`, and `MUSICFY_ADMIN_PASSWORD`. Choose and keep the password private in `.env`; there is no default admin password.
 
+If the admin account already exists but its password is unknown, changing `MUSICFY_ADMIN_PASSWORD` does not update the stored password. With TiDB connection settings in your local `.env` and network access enabled for your machine, run `npm run admin:reset-password`. The command uses `MUSICFY_ADMIN_USERNAME` (default `admin`), prompts for a new password without echoing it, and updates only that account if its role is `ADMIN`.
+
+If your computer cannot connect to TiDB, reset through Render instead: set `MUSICFY_ADMIN_PASSWORD` to a new password and add `MUSICFY_ADMIN_RESET_PASSWORD=true` in the service's Environment settings, then redeploy. Confirm the startup log reports a reset, and immediately remove `MUSICFY_ADMIN_RESET_PASSWORD` and save the environment. Do not leave this flag enabled; it reapplies the configured password on every startup.
+
 ## Database notes
 
 The TiDB schema is defined in `server/schema.sql` using MySQL-compatible types and syntax. The API applies it to the database named by `TIDB_DATABASE` at startup. The database must already exist in TiDB Cloud. Connection settings are read from `.env`; the server fails with a configuration error if required `TIDB_*` values are missing.

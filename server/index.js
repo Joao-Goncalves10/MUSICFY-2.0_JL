@@ -204,6 +204,28 @@ async function initializeDatabase() {
     );
   }
 
+  if (process.env.MUSICFY_ADMIN_RESET_PASSWORD === 'true') {
+    const adminUsername = process.env.MUSICFY_ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.MUSICFY_ADMIN_PASSWORD;
+    if (!adminPassword || adminPassword.length < 12) {
+      throw new Error('MUSICFY_ADMIN_PASSWORD must be at least 12 characters to reset the admin password.');
+    }
+
+    const admin = await getDb(
+      'SELECT id FROM users WHERE username = ? AND `role` = ?',
+      [adminUsername, 'ADMIN']
+    );
+    if (!admin) {
+      throw new Error(`Cannot reset password: ADMIN account "${adminUsername}" was not found.`);
+    }
+
+    await runDb(
+      'UPDATE users SET password_hash = ? WHERE id = ?',
+      [bcrypt.hashSync(adminPassword, 10), admin.id]
+    );
+    console.log(`Admin password reset for "${adminUsername}". Remove MUSICFY_ADMIN_RESET_PASSWORD from the service environment.`);
+  }
+
   const genreCount = await getDb('SELECT COUNT(*) AS count FROM genres');
   if (Number(genreCount?.count || 0) === 0) {
     const genres = ['Pop', 'K-pop', 'R&B', 'Hip-Hop', 'Rap', 'Rock', 'Indie', 'Alternative', 'Electronic', 'Funk', 'MPB', 'Jazz', 'Classical', 'Country'];
