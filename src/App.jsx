@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 
 const api = axios.create({
@@ -418,7 +418,13 @@ function ArtistDetailPage() {
 
   return (
     <div className="content-stack">
-      <div className="artist-hero glass-panel" style={{ backgroundImage: `url(${artistData.artist.banner_url || artistData.artist.image_url})` }}>
+      <div className="artist-hero glass-panel">
+        <img
+          className="artist-hero-media"
+          src={artistData.artist.banner_url || artistData.artist.image_url}
+          alt=""
+          aria-hidden="true"
+        />
         <div className="artist-header-copy">
           <img src={artistData.artist.image_url} alt={artistData.artist.name} />
           <div>
@@ -517,6 +523,8 @@ function ReleaseDetailPage() {
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
   const [favoriteTrackIds, setFavoriteTrackIds] = useState([]);
+  const [openLyricsTrackId, setOpenLyricsTrackId] = useState(null);
+  const [lyricsDisplayMode, setLyricsDisplayMode] = useState('lyrics');
 
   const load = async () => {
     const releaseRes = await api.get(`/releases/${releaseId}`);
@@ -539,6 +547,27 @@ function ReleaseDetailPage() {
   useEffect(() => {
     load();
   }, [releaseId, user]);
+
+  useEffect(() => {
+    setOpenLyricsTrackId(null);
+    setLyricsDisplayMode('lyrics');
+  }, [releaseId]);
+
+  useEffect(() => {
+    if (!openLyricsTrackId) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setOpenLyricsTrackId(null);
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [openLyricsTrackId]);
 
   const togglePreSave = async () => {
     if (!user) return;
@@ -602,22 +631,44 @@ function ReleaseDetailPage() {
   if (!releaseInfo) return <div className="loading-panel">Carregando lançamento…</div>;
 
   const { release, tracks, reviews } = releaseInfo;
+  const selectedLyricsTrack = tracks.find((track) => track.id === openLyricsTrackId);
   const isFutureRelease = new Date(release.release_date) > new Date();
+  const formattedReleaseDate = release.release_date ? new Date(release.release_date + 'T00:00:00').toLocaleDateString('pt-BR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  }) : 'Data indisponível';
 
   return (
-    <div className="content-stack">
+    <div className="content-stack release-view">
       <div className="release-detail glass-panel">
         <img src={release.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={release.title} />
-        <div>
+        <div className="release-copy-wrap">
           <p className="eyebrow">{release.release_type}</p>
           <h1>{release.title}</h1>
-          <p>{release.artist_name}</p>
+          <Link to={`/artists/${release.artist_id}`} className="release-artist-link">
+            {release.artist_name}
+          </Link>
+
           <div className="stats-row">
-            <span>Data de lançamento: {release.release_date}</span>
-            <span>Média: {release.avg_rating || 0}</span>
-            <span>{release.review_count || 0} avaliações</span>
+            <div className="stat-pill">
+              <span className="stat-label">Lançamento</span>
+              <strong>{formattedReleaseDate}</strong>
+            </div>
+            <div className="stat-pill">
+              <span className="stat-label">Média</span>
+              <strong>{Number(release.avg_rating || 0).toFixed(1)}</strong>
+            </div>
+            <div className="stat-pill">
+              <span className="stat-label">Avaliações</span>
+              <strong>{release.review_count || 0}</strong>
+            </div>
           </div>
-          <p>{release.description}</p>
+
+          <p className="release-description">
+            {release.description || 'A biografia deste álbum ainda não foi cadastrada.'}
+          </p>
+
           <div className="action-row">
             {user && (
               <button className="primary-btn" onClick={togglePreSave} type="button">
@@ -629,40 +680,178 @@ function ReleaseDetailPage() {
                 Avaliar
               </button>
             )}
+            {user?.role === 'ADMIN' && (
+              <Link to={`/admin?editRelease=${release.id}`} className="secondary-btn edit-release-action">
+                Editar álbum
+              </Link>
+            )}
           </div>
         </div>
       </div>
 
-      <section className="subsection">
-        <h3>Lista de faixas</h3>
+      <section className="subsection album-tracklist-panel">
+        <div className="section-heading-row">
+          <h3>Lista de faixas</h3>
+          <span>{tracks.length} faixas</span>
+        </div>
         <div className="tracklist">
-          {tracks.map((track) => (
-            <div key={track.id} className="track-item glass-panel">
-              <span>{track.track_number}</span>
-              <div className="track-main">
-                <div>
-                  <strong>{track.title}</strong>
-                  <small>{track.duration}</small>
+          {tracks.map((track) => {
+            const isLyricsOpen = openLyricsTrackId === track.id;
+            return (
+              <div key={track.id} className={`track-item glass-panel ${isLyricsOpen ? 'is-open' : ''}`}>
+                <div className="track-row-main">
+                  <span className="track-number">{track.track_number}</span>
+                  <div className="track-main">
+                    <div className="track-text-block">
+                      <strong>{track.title}</strong>
+                      <small>{track.duration}</small>
+                    </div>
+                    {Boolean(track.explicit) && (
+                      <span className="explicit-tag" aria-label="Conteúdo explícito" title="Conteúdo explícito">
+                        E
+                      </span>
+                    )}
+                  </div>
+                  <div className="track-actions">
+                    {track.youtube_url && (
+                      <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">
+                        Ouvir
+                      </a>
+                    )}
+                    {(track.lyrics || track.translation) && (
+                      <button
+                        type="button"
+                        className="ghost-btn track-compact-btn"
+                        aria-expanded={isLyricsOpen}
+                        onClick={() => {
+                          if (isLyricsOpen) {
+                            setOpenLyricsTrackId(null);
+                          } else {
+                            setLyricsDisplayMode(track.lyrics ? 'lyrics' : 'translation');
+                            setOpenLyricsTrackId(track.id);
+                          }
+                        }}
+                      >
+                        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M5 4.5h10M5 8h10M5 11.5h7M5 15h5" />
+                          <path d="M3 2.5h14v15H3z" />
+                        </svg>
+                        {isLyricsOpen ? 'Ocultar letra' : 'Ver letra'}
+                      </button>
+                    )}
+                    {user && (
+                      <button
+                        type="button"
+                        className={`ghost-btn track-like-btn${favoriteTrackIds.includes(track.id) ? ' is-favorite' : ''}`}
+                        aria-label={favoriteTrackIds.includes(track.id) ? 'Remover dos favoritos' : 'Adicionar aos favoritos'}
+                        aria-pressed={favoriteTrackIds.includes(track.id)}
+                        onClick={() => toggleFavoriteTrack(track.id)}
+                      >
+                        {favoriteTrackIds.includes(track.id) ? '♥' : '♡'}
+                      </button>
+                    )}
+                    {user && (
+                      <button type="button" className="ghost-btn track-compact-btn playlist-btn" onClick={() => addTrackToPlaylist(track.id)}>
+                        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M3.5 5h8M3.5 9h8M3.5 13h5" />
+                          <path d="M15 10v7m-3.5-3.5h7" />
+                        </svg>
+                        Playlist
+                      </button>
+                    )}
+                  </div>
                 </div>
-                {track.explicit ? <span className="explicit-tag">Explicita</span> : <span className="clean-tag">Limpa</span>}
+
               </div>
-              <div className="track-actions">
-                {track.youtube_url && <a href={track.youtube_url} target="_blank" rel="noreferrer">Ouvir</a>}
-                {user && (
-                  <button type="button" className="ghost-btn" onClick={() => toggleFavoriteTrack(track.id)}>
-                    {favoriteTrackIds.includes(track.id) ? '♥' : '♡'}
+            );
+          })}
+        </div>
+      </section>
+
+      {selectedLyricsTrack && (
+        <div
+          className="lyrics-viewer-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setOpenLyricsTrackId(null);
+          }}
+        >
+          <section className="lyrics-viewer" role="dialog" aria-modal="true" aria-labelledby="lyrics-viewer-title">
+            <button type="button" className="lyrics-viewer-close" onClick={() => setOpenLyricsTrackId(null)} aria-label="Fechar visualização da letra" autoFocus>
+              <span aria-hidden="true">×</span>
+            </button>
+
+            <aside className="lyrics-viewer-aside">
+              <img src={release.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'} alt={`Capa de ${release.title}`} />
+              <div className="lyrics-viewer-track-info">
+                <p className="lyrics-viewer-eyebrow">FAIXA {selectedLyricsTrack.track_number} · {selectedLyricsTrack.duration}</p>
+                <h2>{selectedLyricsTrack.title}</h2>
+                <Link to={`/artists/${release.artist_id}`} onClick={() => setOpenLyricsTrackId(null)}>
+                  {release.artist_name}
+                </Link>
+                <span>{release.title}</span>
+              </div>
+              {selectedLyricsTrack.youtube_url && (
+                <a className="lyrics-viewer-listen" href={selectedLyricsTrack.youtube_url} target="_blank" rel="noreferrer">
+                  Ouvir faixa <span aria-hidden="true">↗</span>
+                </a>
+              )}
+            </aside>
+
+            <div className="lyrics-viewer-content">
+              <header className="lyrics-viewer-header">
+                <div>
+                  <p className="lyrics-viewer-eyebrow">LETRA DA MÚSICA</p>
+                  <h1 id="lyrics-viewer-title">{selectedLyricsTrack.title}</h1>
+                </div>
+                <div className="lyrics-viewer-modes" role="group" aria-label="Exibição da letra">
+                  <button
+                    type="button"
+                    className={lyricsDisplayMode === 'lyrics' ? 'is-active' : ''}
+                    aria-pressed={lyricsDisplayMode === 'lyrics'}
+                    disabled={!selectedLyricsTrack.lyrics}
+                    onClick={() => setLyricsDisplayMode('lyrics')}
+                  >
+                    Letra
                   </button>
+                  <button
+                    type="button"
+                    className={lyricsDisplayMode === 'translation' ? 'is-active' : ''}
+                    aria-pressed={lyricsDisplayMode === 'translation'}
+                    disabled={!selectedLyricsTrack.translation}
+                    onClick={() => setLyricsDisplayMode('translation')}
+                  >
+                    Tradução
+                  </button>
+                  <button
+                    type="button"
+                    className={lyricsDisplayMode === 'both' ? 'is-active' : ''}
+                    aria-pressed={lyricsDisplayMode === 'both'}
+                    disabled={!selectedLyricsTrack.lyrics || !selectedLyricsTrack.translation}
+                    onClick={() => setLyricsDisplayMode('both')}
+                  >
+                    Ambas
+                  </button>
+                </div>
+              </header>
+
+              <div className={`lyrics-viewer-scroll mode-${lyricsDisplayMode}`}>
+                {(lyricsDisplayMode === 'lyrics' || lyricsDisplayMode === 'both') && (
+                  <section className="lyrics-column">
+                    {lyricsDisplayMode === 'both' && <h3>Letra original</h3>}
+                    <p>{selectedLyricsTrack.lyrics || 'A letra original ainda não foi cadastrada.'}</p>
+                  </section>
                 )}
-                {user && (
-                  <button type="button" className="ghost-btn" onClick={() => addTrackToPlaylist(track.id)}>
-                    + Playlist
-                  </button>
+                {(lyricsDisplayMode === 'translation' || lyricsDisplayMode === 'both') && (
+                  <section className="lyrics-column">
+                    {lyricsDisplayMode === 'both' && <h3>Tradução</h3>}
+                    <p>{selectedLyricsTrack.translation || 'A tradução ainda não foi cadastrada.'}</p>
+                  </section>
                 )}
               </div>
             </div>
-          ))}
+          </section>
         </div>
-      </section>
+      )}
 
       {isReviewModalOpen && (
         <div className="modal-backdrop" onClick={() => setIsReviewModalOpen(false)}>
@@ -944,30 +1133,55 @@ function AuthPage() {
   );
 }
 
-function ImageUploadField({ label, value, onChange, placeholder }) {
+function ImageUploadField({ label, value, onChange, placeholder, hint, onGifUpload, onUploadStateChange }) {
   const inputRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
-  const handleFileChange = (event) => {
-    const file = event.target.files?.[0];
+  const handleSelectedFile = async (file) => {
     if (!file) return;
+
+    const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
+    if (!file.type.startsWith('image/') && !isGif) {
+      setUploadError('Selecione um arquivo de imagem.');
+      return;
+    }
+
+    setUploadError('');
+    if (isGif && onGifUpload) {
+      setIsUploading(true);
+      onUploadStateChange?.(true);
+      try {
+        onChange(await onGifUpload(file));
+      } catch (error) {
+        console.error('GIF upload failed:', error);
+        setUploadError(error.response?.data?.error || 'Não foi possível enviar o GIF. Tente novamente.');
+      } finally {
+        setIsUploading(false);
+        onUploadStateChange?.(false);
+      }
+      return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
       onChange(reader.result || '');
-      if (event.target) event.target.value = '';
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    void handleSelectedFile(file);
   };
 
   const handleDrop = (event) => {
     event.preventDefault();
     setIsDragging(false);
     const file = event.dataTransfer.files?.[0];
-    if (!file || !file.type.startsWith('image/')) return;
-
-    const reader = new FileReader();
-    reader.onloadend = () => onChange(reader.result || '');
-    reader.readAsDataURL(file);
+    void handleSelectedFile(file);
   };
 
   return (
@@ -982,11 +1196,11 @@ function ImageUploadField({ label, value, onChange, placeholder }) {
     >
       <div className="image-upload-header">
         <span>{label}</span>
-        <button type="button" className="secondary-btn compact-btn" onClick={() => inputRef.current?.click()}>
-          Carregar imagem
+        <button type="button" className="secondary-btn compact-btn" disabled={isUploading} onClick={() => inputRef.current?.click()}>
+          {isUploading ? 'Enviando...' : 'Carregar imagem'}
         </button>
       </div>
-      <input ref={inputRef} type="file" accept="image/*" hidden onChange={handleFileChange} />
+      <input ref={inputRef} type="file" accept="image/*,.gif" hidden onChange={handleFileChange} />
       <div className="image-preview">
         {value ? (
           <img src={value} alt={label} />
@@ -994,17 +1208,22 @@ function ImageUploadField({ label, value, onChange, placeholder }) {
           <div className="image-empty-state">Sem imagem</div>
         )}
       </div>
-      <div className="image-drop-hint">Arraste e solte ou use a URL abaixo</div>
-      <input type="url" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <div className="image-drop-hint">{hint || 'Arraste e solte ou use a URL abaixo'}</div>
+      {uploadError && <p className="image-upload-error" role="alert">{uploadError}</p>}
+      <input type="url" value={value} placeholder={placeholder} disabled={isUploading} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
 
 function AdminPage() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [stats, setStats] = useState({ artists: { count: 0 }, releases: { count: 0 }, users: { count: 0 }, reviews: { count: 0 } });
   const [artistList, setArtistList] = useState([]);
   const [releaseList, setReleaseList] = useState([]);
+  const [isArtistBannerUploading, setIsArtistBannerUploading] = useState(false);
+  const [editingArtistId, setEditingArtistId] = useState(null);
+  const [editingReleaseId, setEditingReleaseId] = useState(null);
   const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
   const [releaseForm, setReleaseForm] = useState({
     title: '',
@@ -1034,14 +1253,34 @@ function AdminPage() {
     refreshCatalogLists();
   }, [user]);
 
+  const resetArtistForm = () => {
+    setEditingArtistId(null);
+    setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+  };
+
+  const uploadArtistBannerGif = async (file) => {
+    const formData = new FormData();
+    formData.append('banner', new File([file], file.name, { type: 'image/gif' }));
+    const response = await api.post('/uploads/artist-banner', formData);
+    const apiOrigin = new URL(api.defaults.baseURL, window.location.origin).origin;
+    return new URL(response.data.url, apiOrigin).toString();
+  };
+
   const submitArtist = async (e) => {
     e.preventDefault();
-    await api.post('/artists', {
+    const payload = {
       ...artistForm,
       genres: artistForm.genres.split(',').map((g) => g.trim()).filter(Boolean),
-    });
-    alert('Artista criado');
-    setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+    };
+
+    if (editingArtistId) {
+      await api.put(`/artists/${editingArtistId}`, payload);
+    } else {
+      await api.post('/artists', payload);
+    }
+
+    alert(editingArtistId ? 'Artista atualizado com sucesso.' : 'Artista criado.');
+    resetArtistForm();
     refreshCatalogLists();
   };
 
@@ -1066,6 +1305,21 @@ function AdminPage() {
     }));
   };
 
+  const resetReleaseForm = () => {
+    setEditingReleaseId(null);
+    setReleaseForm({
+      title: '',
+      artist_id: '',
+      artist_name: '',
+      cover_url: '',
+      release_type: 'Album',
+      release_date: '',
+      genre: '',
+      description: '',
+      tracks: [{ title: '', duration: '3:00', explicit: false, youtube_url: '', lyrics: '', translation: '' }],
+    });
+  };
+
   const submitRelease = async (e) => {
     e.preventDefault();
 
@@ -1080,25 +1334,20 @@ function AdminPage() {
         translation: track.translation || '',
       }));
 
-    await api.post('/releases', {
+    const payload = {
       ...releaseForm,
       artist_id: releaseForm.artist_id ? Number(releaseForm.artist_id) : undefined,
       artist_name: releaseForm.artist_name || undefined,
       tracks: validTracks,
-    });
+    };
+    if (editingReleaseId) {
+      await api.put(`/releases/${editingReleaseId}`, payload);
+    } else {
+      await api.post('/releases', payload);
+    }
 
-    alert('Lançamento criado');
-    setReleaseForm({
-      title: '',
-      artist_id: '',
-      artist_name: '',
-      cover_url: '',
-      release_type: 'Album',
-      release_date: '',
-      genre: '',
-      description: '',
-      tracks: [{ title: '', duration: '3:00', explicit: false, youtube_url: '', lyrics: '', translation: '' }],
-    });
+    alert(editingReleaseId ? 'Álbum atualizado com sucesso.' : 'Lançamento criado.');
+    resetReleaseForm();
     refreshCatalogLists();
   };
 
@@ -1124,6 +1373,7 @@ function AdminPage() {
   };
 
   const handleArtistEdit = (artist) => {
+    setEditingArtistId(artist.id);
     setArtistForm({
       name: artist.name || '',
       bio: artist.bio || '',
@@ -1145,6 +1395,7 @@ function AdminPage() {
   const handleReleaseEdit = async (release) => {
     const detail = await api.get(`/releases/${release.id}`);
     const tracks = detail.data.tracks?.map((track) => ({
+      id: track.id,
       title: track.title || '',
       duration: track.duration || '3:00',
       explicit: Boolean(track.explicit),
@@ -1164,8 +1415,24 @@ function AdminPage() {
       description: detail.data.release.description || '',
       tracks,
     });
+    setEditingReleaseId(release.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+
+  useEffect(() => {
+    const releaseIdToEdit = searchParams.get('editRelease');
+    if (!releaseIdToEdit || !releaseList.length) return;
+
+    const release = releaseList.find((item) => String(item.id) === releaseIdToEdit);
+    if (!release) return;
+
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('editRelease');
+      return next;
+    }, { replace: true });
+    handleReleaseEdit(release);
+  }, [releaseList, searchParams, setSearchParams]);
 
   const handleReleaseDelete = async (releaseId) => {
     if (!window.confirm('Deseja excluir este lançamento?')) return;
@@ -1193,8 +1460,15 @@ function AdminPage() {
       <div className="admin-stack">
         <form className="admin-form glass-panel" onSubmit={submitArtist}>
           <div className="admin-form-header">
-            <h3>Criar artista</h3>
-            <span>Perfil e identidade visual</span>
+            <div>
+              <h3>{editingArtistId ? 'Editar artista' : 'Criar artista'}</h3>
+              <span>{editingArtistId ? 'Atualize o perfil e a identidade visual' : 'Perfil e identidade visual'}</span>
+            </div>
+            {editingArtistId && (
+              <button type="button" className="ghost-btn compact-btn" onClick={resetArtistForm}>
+                Cancelar edição
+              </button>
+            )}
           </div>
           <input placeholder="Nome do artista" value={artistForm.name} onChange={(e) => setArtistForm({ ...artistForm, name: e.target.value })} />
           <textarea placeholder="Biografia" value={artistForm.bio} onChange={(e) => setArtistForm({ ...artistForm, bio: e.target.value })} />
@@ -1210,16 +1484,26 @@ function AdminPage() {
               value={artistForm.banner_url}
               onChange={(value) => setArtistForm({ ...artistForm, banner_url: value })}
               placeholder="https://..."
+              hint="GIFs animados de até 10 MB são aceitos. Para arquivos maiores, cole a URL abaixo."
+              onGifUpload={uploadArtistBannerGif}
+              onUploadStateChange={setIsArtistBannerUploading}
             />
           </div>
           <input placeholder="Gêneros, separados por vírgula" value={artistForm.genres} onChange={(e) => setArtistForm({ ...artistForm, genres: e.target.value })} />
-          <button type="submit" className="primary-btn">Criar artista</button>
+          <button type="submit" className="primary-btn" disabled={isArtistBannerUploading}>{editingArtistId ? 'Salvar alterações' : 'Criar artista'}</button>
         </form>
 
         <form className="admin-form glass-panel" onSubmit={submitRelease}>
-          <div className="admin-form-header">
-            <h3>Criar álbum</h3>
-            <span>Álbum, EP ou single</span>
+          <div className="admin-form-header release-form-header">
+            <div>
+              <h3>{editingReleaseId ? 'Editar álbum' : 'Criar álbum'}</h3>
+              <span>{editingReleaseId ? 'Atualize os dados e faixas do lançamento' : 'Álbum, EP ou single'}</span>
+            </div>
+            {editingReleaseId && (
+              <button type="button" className="ghost-btn compact-btn" onClick={resetReleaseForm}>
+                Cancelar edição
+              </button>
+            )}
           </div>
           <input placeholder="Título do lançamento" value={releaseForm.title} onChange={(e) => setReleaseForm({ ...releaseForm, title: e.target.value })} />
           <input placeholder="Nome do artista" value={releaseForm.artist_name} onChange={(e) => setReleaseForm({ ...releaseForm, artist_name: e.target.value })} />
@@ -1240,31 +1524,58 @@ function AdminPage() {
           <textarea placeholder="Descrição" value={releaseForm.description} onChange={(e) => setReleaseForm({ ...releaseForm, description: e.target.value })} />
 
           <div className="track-editor">
-            <div className="section-header compact">
-              <h4>Tracklist</h4>
-              <button type="button" className="secondary-btn" onClick={addTrackRow}>+ Faixa</button>
+            <div className="track-editor-header">
+              <div>
+                <h4>Faixas do álbum</h4>
+                <p>Edite os dados principais e expanda os detalhes quando precisar.</p>
+              </div>
+              <button type="button" className="secondary-btn compact-btn" onClick={addTrackRow}>+ Adicionar faixa</button>
             </div>
             {releaseForm.tracks.map((track, index) => (
-              <div key={`${track.title || 'track'}-${index}`} className="track-row glass-panel">
-                <div className="track-row-grid">
-                  <input value={track.title} onChange={(e) => updateTrack(index, 'title', e.target.value)} placeholder="Nome da faixa" />
-                  <input value={track.duration} onChange={(e) => updateTrack(index, 'duration', e.target.value)} placeholder="Duração" />
+              <div key={track.id ? `track-${track.id}` : `draft-${index}`} className="track-row track-editor-card glass-panel">
+                <div className="track-editor-card-heading">
+                  <span className="track-editor-number">{String(index + 1).padStart(2, '0')}</span>
+                  <div>
+                    <strong>Faixa {index + 1}</strong>
+                    <small>{track.title || 'Adicione o título da música'}</small>
+                  </div>
+                  {releaseForm.tracks.length > 1 && (
+                    <button type="button" className="ghost-btn compact-btn track-editor-remove" onClick={() => removeTrackRow(index)}>
+                      Remover
+                    </button>
+                  )}
+                </div>
+
+                <div className="track-editor-main-grid">
+                  <input aria-label={`Nome da faixa ${index + 1}`} value={track.title} onChange={(e) => updateTrack(index, 'title', e.target.value)} placeholder="Nome da faixa" />
+                  <input aria-label={`Duração da faixa ${index + 1}`} value={track.duration} onChange={(e) => updateTrack(index, 'duration', e.target.value)} placeholder="Duração (ex.: 3:42)" />
                   <label className="check-inline">
                     <input type="checkbox" checked={track.explicit} onChange={(e) => updateTrack(index, 'explicit', e.target.checked)} />
                     Explícita
                   </label>
                 </div>
-                <input value={track.youtube_url} onChange={(e) => updateTrack(index, 'youtube_url', e.target.value)} placeholder="Link do YouTube" />
-                <textarea value={track.lyrics} onChange={(e) => updateTrack(index, 'lyrics', e.target.value)} placeholder="Letra" rows="2" />
-                <textarea value={track.translation} onChange={(e) => updateTrack(index, 'translation', e.target.value)} placeholder="Tradução" rows="2" />
-                {releaseForm.tracks.length > 1 && (
-                  <button type="button" className="ghost-btn" onClick={() => removeTrackRow(index)}>Remover</button>
-                )}
+
+                <details className="track-editor-details">
+                  <summary>Letra, tradução e link do YouTube</summary>
+                  <div className="track-editor-extra">
+                    <input aria-label={`Link do YouTube da faixa ${index + 1}`} value={track.youtube_url} onChange={(e) => updateTrack(index, 'youtube_url', e.target.value)} placeholder="Link do YouTube" />
+                    <div className="track-editor-lyrics-grid">
+                      <label>
+                        Letra original
+                        <textarea value={track.lyrics} onChange={(e) => updateTrack(index, 'lyrics', e.target.value)} placeholder="Cole a letra aqui" rows="4" />
+                      </label>
+                      <label>
+                        Tradução
+                        <textarea value={track.translation} onChange={(e) => updateTrack(index, 'translation', e.target.value)} placeholder="Cole a tradução aqui" rows="4" />
+                      </label>
+                    </div>
+                  </div>
+                </details>
               </div>
             ))}
           </div>
 
-          <button type="submit" className="primary-btn">Criar lançamento</button>
+          <button type="submit" className="primary-btn">{editingReleaseId ? 'Salvar alterações' : 'Criar lançamento'}</button>
         </form>
 
         <form className="admin-form glass-panel" onSubmit={submitFeatured}>
