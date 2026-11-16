@@ -92,6 +92,8 @@ The TiDB schema is defined in `server/schema.sql` using MySQL-compatible types a
 
 The relational catalog links artists to releases and releases (albums, EPs, or singles) to tracks. Artist, release, and track URLs are stored in `artist_links`, `release_links`, and `track_links`. Lyrics and translations are stored in `track_texts`, keyed by track, content type, and language code; use `und` when the language is unknown. The existing local SQLite database is not uploaded or copied to TiDB automatically; it remains untouched.
 
+In the admin panel, create an artist before creating a release, then select that artist from the catalog list. The API validates the selected artist ID against TiDB to prevent invalid release-to-artist links.
+
 ### Importing a local SQLite catalog
 
 The import command requires Node.js 22.12 or newer and reads the SQLite source in read-only mode. From the project root, preview the default `server/data/musicfy.db`:

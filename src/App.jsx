@@ -1552,8 +1552,25 @@ function AdminPage() {
             )}
           </div>
           <input placeholder="Título do lançamento" value={releaseForm.title} onChange={(e) => setReleaseForm({ ...releaseForm, title: e.target.value })} />
-          <input placeholder="Nome do artista" value={releaseForm.artist_name} onChange={(e) => setReleaseForm({ ...releaseForm, artist_name: e.target.value })} />
-          <input placeholder="ID do artista (opcional)" value={releaseForm.artist_id} onChange={(e) => setReleaseForm({ ...releaseForm, artist_id: e.target.value })} />
+          <select
+            aria-label="Artista do lançamento"
+            required
+            value={releaseForm.artist_id}
+            onChange={(e) => {
+              const selectedArtist = artistList.find((artist) => String(artist.id) === e.target.value);
+              setReleaseForm({
+                ...releaseForm,
+                artist_id: e.target.value,
+                artist_name: selectedArtist?.name || '',
+              });
+            }}
+          >
+            <option value="">{artistList.length ? 'Selecione um artista cadastrado' : 'Cadastre um artista primeiro'}</option>
+            {artistList.map((artist) => (
+              <option key={artist.id} value={artist.id}>{artist.name}</option>
+            ))}
+          </select>
+          {!artistList.length && <p className="image-drop-hint">Crie um artista no formulário acima para vinculá-lo a este lançamento.</p>}
           <ImageUploadField
             label="Capa do lançamento"
             value={releaseForm.cover_url}

@@ -788,8 +788,19 @@ app.post('/api/releases', requireAuth, requireAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Use uma URL de capa com até 512 caracteres ou carregue um arquivo de imagem.' });
   }
 
-  let resolvedArtistId = artist_id ? Number(artist_id) : null;
-  if (!resolvedArtistId && artist_name) {
+  let resolvedArtistId = null;
+  if (artist_id !== undefined && artist_id !== null && artist_id !== '') {
+    const requestedArtistId = Number(artist_id);
+    if (!Number.isSafeInteger(requestedArtistId) || requestedArtistId < 1) {
+      return res.status(400).json({ error: 'Selecione um artista válido cadastrado no catálogo.' });
+    }
+
+    const selectedArtist = await getDb('SELECT id FROM artists WHERE id = ?', [requestedArtistId]);
+    if (!selectedArtist) {
+      return res.status(400).json({ error: 'O artista selecionado não existe no catálogo. Atualize a página e selecione novamente.' });
+    }
+    resolvedArtistId = selectedArtist.id;
+  } else if (artist_name) {
     const existingArtist = await getDb('SELECT id FROM artists WHERE name = ?', [artist_name]);
     if (existingArtist) {
       resolvedArtistId = existingArtist.id;
@@ -870,8 +881,19 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
     }
   }
 
-  let resolvedArtistId = artist_id ? Number(artist_id) : existingRelease.artist_id;
-  if (!resolvedArtistId && artist_name) {
+  let resolvedArtistId = existingRelease.artist_id;
+  if (artist_id !== undefined && artist_id !== null && artist_id !== '') {
+    const requestedArtistId = Number(artist_id);
+    if (!Number.isSafeInteger(requestedArtistId) || requestedArtistId < 1) {
+      return res.status(400).json({ error: 'Selecione um artista válido cadastrado no catálogo.' });
+    }
+
+    const selectedArtist = await getDb('SELECT id FROM artists WHERE id = ?', [requestedArtistId]);
+    if (!selectedArtist) {
+      return res.status(400).json({ error: 'O artista selecionado não existe no catálogo. Atualize a página e selecione novamente.' });
+    }
+    resolvedArtistId = selectedArtist.id;
+  } else if (!resolvedArtistId && artist_name) {
     const existingArtist = await getDb('SELECT id FROM artists WHERE name = ?', [artist_name]);
     if (existingArtist) {
       resolvedArtistId = existingArtist.id;
@@ -882,6 +904,10 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
       );
       resolvedArtistId = createdArtist.id;
     }
+  }
+
+  if (!resolvedArtistId) {
+    return res.status(400).json({ error: 'Selecione um artista cadastrado no catálogo.' });
   }
 
   const isFuture = isFutureReleaseDate(release_date || existingRelease.release_date);
