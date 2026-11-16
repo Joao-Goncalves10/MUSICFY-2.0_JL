@@ -4,40 +4,111 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const sqlite3 = require('sqlite3').verbose();
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || 'musicfy-secret-dev';
+const JWT_SECRET = process.env.JWT_SECRET;
 
-const dbDir = path.join(__dirname, 'data');
-fs.mkdirSync(dbDir, { recursive: true });
-const db = new sqlite3.Database(path.join(dbDir, 'musicfy.db'));
+const requiredTidbSettings = ['TIDB_HOST', 'TIDB_USER', 'TIDB_PASSWORD', 'TIDB_DATABASE', 'JWT_SECRET'];
+const missingTidbSettings = requiredTidbSettings.filter((setting) => !process.env[setting]);
+if (missingTidbSettings.length) {
+  throw new Error(`Missing configuration: ${missingTidbSettings.join(', ')}. Configure these values in .env.`);
+}
+if (JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET must be at least 32 characters long.');
+}
 
-const runDb = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.run(sql, params, function (err) {
-      if (err) return reject(err);
-      resolve({ id: this.lastID, changes: this.changes });
-    });
-  });
+const tidbPort = Number(process.env.TIDB_PORT || 4000);
+if (!Number.isInteger(tidbPort) || tidbPort < 1 || tidbPort > 65535) {
+  throw new Error('TIDB_PORT must be a valid TCP port.');
+}
 
-const getDb = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.get(sql, params, (err, row) => {
-      if (err) return reject(err);
-      resolve(row);
-    });
-  });
+const tlsOptions = { minVersion: 'TLSv1.2', rejectUnauthorized: true };
+if (process.env.TIDB_CA_PATH) {
+  tlsOptions.ca = fs.readFileSync(path.resolve(process.env.TIDB_CA_PATH), 'utf8');
+}
 
-const allDb = (sql, params = []) =>
-  new Promise((resolve, reject) => {
-    db.all(sql, params, (err, rows) => {
-      if (err) return reject(err);
-      resolve(rows || []);
-    });
-  });
+const db = mysql.createPool({
+  host: process.env.TIDB_HOST,
+  port: tidbPort,
+  user: process.env.TIDB_USER,
+  password: process.env.TIDB_PASSWORD,
+  database: process.env.TIDB_DATABASE,
+  ssl: tlsOptions,
+  waitForConnections: true,
+  connectionLimit: 10,
+  connectTimeout: 10000,
+  dateStrings: true,
+});
+
+const runDb = async (sql, params = []) => {
+  const [result] = await db.execute(sql, params);
+  return {
+    id: Number(result.insertId || 0),
+    changes: Number(result.affectedRows || 0),
+  };
+};
+
+const execDb = async (sql) => {
+  const statements = sql.split(';').map((statement) => statement.trim()).filter(Boolean);
+  for (const statement of statements) {
+    await db.query(statement);
+  }
+};
+
+const getDb = async (sql, params = []) => {
+  const [rows] = await db.execute(sql, params);
+  return rows[0];
+};
+
+const allDb = async (sql, params = []) => {
+  const [rows] = await db.execute(sql, params);
+  return rows;
+};
+
+const saveLegacyTrackContent = async (trackId, track) => {
+  if (track.youtube_url) {
+    await runDb(
+      `INSERT IGNORE INTO track_links (track_id, platform, url, link_type) VALUES (?, 'YouTube', ?, 'streaming')`,
+      [trackId, track.youtube_url]
+    );
+  }
+  if (track.lyrics) {
+    await runDb(
+      `INSERT IGNORE INTO track_texts (track_id, content_type, language_code, content) VALUES (?, 'lyrics', 'und', ?)`,
+      [trackId, track.lyrics]
+    );
+  }
+  if (track.translation) {
+    await runDb(
+      `INSERT IGNORE INTO track_texts (track_id, content_type, language_code, content) VALUES (?, 'translation', 'und', ?)`,
+      [trackId, track.translation]
+    );
+  }
+};
+
+const migrateLegacyTrackContent = async () => {
+  await runDb(`
+    INSERT IGNORE INTO track_links (track_id, platform, url, link_type)
+    SELECT id, 'YouTube', youtube_url, 'streaming'
+    FROM tracks
+    WHERE TRIM(COALESCE(youtube_url, '')) <> ''
+  `);
+  await runDb(`
+    INSERT IGNORE INTO track_texts (track_id, content_type, language_code, content)
+    SELECT id, 'lyrics', 'und', lyrics
+    FROM tracks
+    WHERE TRIM(COALESCE(lyrics, '')) <> ''
+  `);
+  await runDb(`
+    INSERT IGNORE INTO track_texts (track_id, content_type, language_code, content)
+    SELECT id, 'translation', 'und', translation
+    FROM tracks
+    WHERE TRIM(COALESCE(translation, '')) <> ''
+  `);
+};
 
 const normalizeUser = (user) => {
   if (!user) return null;
@@ -89,212 +160,39 @@ const requireAdmin = (req, res, next) => {
 };
 
 async function initializeDatabase() {
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS roles (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL,
-      description TEXT
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      username TEXT UNIQUE NOT NULL,
-      full_name TEXT NOT NULL,
-      email TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      avatar_url TEXT,
-      banner_url TEXT,
-      bio TEXT,
-      role TEXT DEFAULT 'USER',
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS artists (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      bio TEXT,
-      image_url TEXT,
-      banner_url TEXT,
-      genre TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS genres (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT UNIQUE NOT NULL
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS artist_genres (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      artist_id INTEGER NOT NULL,
-      genre_id INTEGER NOT NULL,
-      FOREIGN KEY (artist_id) REFERENCES artists(id),
-      FOREIGN KEY (genre_id) REFERENCES genres(id),
-      UNIQUE(artist_id, genre_id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS releases (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      artist_id INTEGER NOT NULL,
-      cover_url TEXT,
-      release_type TEXT NOT NULL,
-      release_date TEXT NOT NULL,
-      genre TEXT,
-      description TEXT,
-      status TEXT DEFAULT 'ACTIVE',
-      featured_order INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (artist_id) REFERENCES artists(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS tracks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      release_id INTEGER NOT NULL,
-      title TEXT NOT NULL,
-      duration TEXT,
-      explicit INTEGER DEFAULT 0,
-      youtube_url TEXT,
-      lyrics TEXT,
-      translation TEXT,
-      track_number INTEGER NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (release_id) REFERENCES releases(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS reviews (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      release_id INTEGER NOT NULL,
-      rating INTEGER NOT NULL,
-      review_text TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(user_id, release_id),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (release_id) REFERENCES releases(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS review_likes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      review_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(review_id, user_id),
-      FOREIGN KEY (review_id) REFERENCES reviews(id),
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS playlists (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      description TEXT,
-      cover_url TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS playlist_tracks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      playlist_id INTEGER NOT NULL,
-      track_id INTEGER NOT NULL,
-      UNIQUE(playlist_id, track_id),
-      FOREIGN KEY (playlist_id) REFERENCES playlists(id),
-      FOREIGN KEY (track_id) REFERENCES tracks(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS favorites (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      track_id INTEGER NOT NULL,
-      UNIQUE(user_id, track_id),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (track_id) REFERENCES tracks(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS pre_saves (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      release_id INTEGER NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(user_id, release_id),
-      FOREIGN KEY (user_id) REFERENCES users(id),
-      FOREIGN KEY (release_id) REFERENCES releases(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      message TEXT NOT NULL,
-      read_status INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users(id)
-    );
-  `);
-
-  await runDb(`
-    CREATE TABLE IF NOT EXISTS featured_releases (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      release_id INTEGER NOT NULL,
-      sort_order INTEGER NOT NULL,
-      UNIQUE(release_id),
-      FOREIGN KEY (release_id) REFERENCES releases(id)
-    );
-  `);
+  await execDb(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
   const rolesRow = await getDb('SELECT COUNT(*) AS count FROM roles');
-  if ((rolesRow?.count || 0) === 0) {
+  if (Number(rolesRow?.count || 0) === 0) {
     await runDb("INSERT INTO roles (name, description) VALUES ('ADMIN', 'Administrator access');");
     await runDb("INSERT INTO roles (name, description) VALUES ('USER', 'Standard member access');");
   }
 
   const userCount = await getDb('SELECT COUNT(*) AS count FROM users');
-  if ((userCount?.count || 0) === 0) {
-    const adminHash = bcrypt.hashSync('Admin123!', 10);
+  if (Number(userCount?.count || 0) === 0) {
+    const adminUsername = process.env.MUSICFY_ADMIN_USERNAME || 'admin';
+    const adminName = process.env.MUSICFY_ADMIN_NAME || 'Musicfy Admin';
+    const adminEmail = process.env.MUSICFY_ADMIN_EMAIL || 'admin@musicfy.dev';
+    const adminPassword = process.env.MUSICFY_ADMIN_PASSWORD;
+    if (!adminPassword || adminPassword.length < 12) {
+      throw new Error('Set MUSICFY_ADMIN_PASSWORD to at least 12 characters before initializing an empty database.');
+    }
+
+    const adminHash = bcrypt.hashSync(adminPassword, 10);
     await runDb(
-      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, banner_url, bio, role) VALUES (?, ?, ?, ?, ?, ?, ?, 'ADMIN')`,
-      ['admin', 'Musicfy Admin', 'admin@musicfy.dev', adminHash, 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?auto=format&fit=crop&w=1200&q=80', 'Managing the platform and catalog.']
+      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, banner_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, ?, 'ADMIN')`,
+      [adminUsername, adminName, adminEmail, adminHash, 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?auto=format&fit=crop&w=1200&q=80', 'Managing the platform and catalog.']
     );
 
     const userHash = bcrypt.hashSync('User123!', 10);
     await runDb(
-      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, banner_url, bio, role) VALUES (?, ?, ?, ?, ?, ?, ?, 'USER')`,
+      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, banner_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, ?, 'USER')`,
       ['dayana', 'Dayana Costa', 'dayana@example.com', userHash, 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80', 'Taste-maker and playlist curator.']
     );
   }
 
   const genreCount = await getDb('SELECT COUNT(*) AS count FROM genres');
-  if ((genreCount?.count || 0) === 0) {
+  if (Number(genreCount?.count || 0) === 0) {
     const genres = ['Pop', 'K-pop', 'R&B', 'Hip-Hop', 'Rap', 'Rock', 'Indie', 'Alternative', 'Electronic', 'Funk', 'MPB', 'Jazz', 'Classical', 'Country'];
     for (const genre of genres) {
       await runDb('INSERT INTO genres (name) VALUES (?)', [genre]);
@@ -302,7 +200,7 @@ async function initializeDatabase() {
   }
 
   const artistCount = await getDb('SELECT COUNT(*) AS count FROM artists');
-  if ((artistCount?.count || 0) === 0) {
+  if (Number(artistCount?.count || 0) === 0) {
     const firstArtist = await runDb(
       `INSERT INTO artists (name, bio, image_url, banner_url, genre) VALUES (?, ?, ?, ?, ?)`,
       ['Solar Tide', 'A luminous synth-pop project with cinematic hooks and club-ready textures.', 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80', 'Pop']
@@ -321,12 +219,12 @@ async function initializeDatabase() {
     const genreMap = await allDb('SELECT id, name FROM genres');
     const map = Object.fromEntries(genreMap.map((row) => [row.name, row.id]));
 
-    await runDb('INSERT OR IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [firstArtist.id, map['Pop'] || 1]);
-    await runDb('INSERT OR IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [firstArtist.id, map['Electronic'] || 9]);
-    await runDb('INSERT OR IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [secondArtist.id, map['R&B'] || 3]);
-    await runDb('INSERT OR IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [secondArtist.id, map['Indie'] || 7]);
-    await runDb('INSERT OR IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [thirdArtist.id, map['Funk'] || 10]);
-    await runDb('INSERT OR IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [thirdArtist.id, map['Electronic'] || 9]);
+    await runDb('INSERT IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [firstArtist.id, map['Pop'] || 1]);
+    await runDb('INSERT IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [firstArtist.id, map['Electronic'] || 9]);
+    await runDb('INSERT IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [secondArtist.id, map['R&B'] || 3]);
+    await runDb('INSERT IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [secondArtist.id, map['Indie'] || 7]);
+    await runDb('INSERT IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [thirdArtist.id, map['Funk'] || 10]);
+    await runDb('INSERT IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [thirdArtist.id, map['Electronic'] || 9]);
 
     const release1 = await runDb(
       `INSERT INTO releases (title, artist_id, cover_url, release_type, release_date, genre, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE')`,
@@ -361,6 +259,8 @@ async function initializeDatabase() {
     await runDb('INSERT INTO featured_releases (release_id, sort_order) VALUES (?, ?)', [release1.id, 1]);
     await runDb('INSERT INTO featured_releases (release_id, sort_order) VALUES (?, ?)', [release2.id, 2]);
   }
+
+  await migrateLegacyTrackContent();
 }
 
 app.use(cors());
@@ -368,6 +268,146 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, message: 'Musicfy API running.' }));
+
+const linkEntityConfig = {
+  artist: { table: 'artist_links', foreignKey: 'artist_id', sourceTable: 'artists' },
+  release: { table: 'release_links', foreignKey: 'release_id', sourceTable: 'releases' },
+  track: { table: 'track_links', foreignKey: 'track_id', sourceTable: 'tracks' },
+};
+
+app.get('/api/content/:entityType/:id/links', async (req, res) => {
+  const config = Object.prototype.hasOwnProperty.call(linkEntityConfig, req.params.entityType)
+    ? linkEntityConfig[req.params.entityType]
+    : null;
+  const entityId = Number(req.params.id);
+  if (!config) return res.status(404).json({ error: 'Content type not found.' });
+  if (!Number.isSafeInteger(entityId) || entityId < 1) return res.status(400).json({ error: 'Invalid content ID.' });
+
+  const entity = await getDb(`SELECT id FROM ${config.sourceTable} WHERE id = ?`, [entityId]);
+  if (!entity) return res.status(404).json({ error: 'Content not found.' });
+
+  const links = await allDb(
+    `SELECT id, platform, url, link_type, created_at FROM ${config.table} WHERE ${config.foreignKey} = ? ORDER BY id`,
+    [entityId]
+  );
+  return res.json(links);
+});
+
+app.post('/api/content/:entityType/:id/links', requireAuth, requireAdmin, async (req, res) => {
+  const config = Object.prototype.hasOwnProperty.call(linkEntityConfig, req.params.entityType)
+    ? linkEntityConfig[req.params.entityType]
+    : null;
+  const entityId = Number(req.params.id);
+  if (!config) return res.status(404).json({ error: 'Content type not found.' });
+  if (!Number.isSafeInteger(entityId) || entityId < 1) return res.status(400).json({ error: 'Invalid content ID.' });
+
+  const { platform, url, link_type } = req.body;
+  if (typeof platform !== 'string' || !platform.trim() || typeof url !== 'string' || !url.trim()) {
+    return res.status(400).json({ error: 'Platform and URL are required.' });
+  }
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url.trim());
+  } catch (error) {
+    return res.status(400).json({ error: 'Enter a valid HTTP or HTTPS URL.' });
+  }
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    return res.status(400).json({ error: 'Links must use HTTP or HTTPS.' });
+  }
+
+  const entity = await getDb(`SELECT id FROM ${config.sourceTable} WHERE id = ?`, [entityId]);
+  if (!entity) return res.status(404).json({ error: 'Content not found.' });
+
+  const defaultLinkType = req.params.entityType === 'artist' ? 'official' : 'streaming';
+  await runDb(
+    `INSERT IGNORE INTO ${config.table} (${config.foreignKey}, platform, url, link_type) VALUES (?, ?, ?, ?)`,
+    [entityId, platform.trim(), parsedUrl.toString(), typeof link_type === 'string' && link_type.trim() ? link_type.trim() : defaultLinkType]
+  );
+  const link = await getDb(
+    `SELECT id, platform, url, link_type, created_at FROM ${config.table} WHERE ${config.foreignKey} = ? AND platform = ? AND url = ?`,
+    [entityId, platform.trim(), parsedUrl.toString()]
+  );
+  return res.status(201).json(link);
+});
+
+app.delete('/api/content/:entityType/:id/links/:linkId', requireAuth, requireAdmin, async (req, res) => {
+  const config = Object.prototype.hasOwnProperty.call(linkEntityConfig, req.params.entityType)
+    ? linkEntityConfig[req.params.entityType]
+    : null;
+  const entityId = Number(req.params.id);
+  const linkId = Number(req.params.linkId);
+  if (!config) return res.status(404).json({ error: 'Content type not found.' });
+  if (!Number.isSafeInteger(entityId) || entityId < 1 || !Number.isSafeInteger(linkId) || linkId < 1) {
+    return res.status(400).json({ error: 'Invalid content or link ID.' });
+  }
+
+  const result = await runDb(
+    `DELETE FROM ${config.table} WHERE id = ? AND ${config.foreignKey} = ?`,
+    [linkId, entityId]
+  );
+  if (!result.changes) return res.status(404).json({ error: 'Link not found.' });
+  return res.json({ deleted: true });
+});
+
+app.get('/api/tracks/:id/texts', async (req, res) => {
+  const trackId = Number(req.params.id);
+  if (!Number.isSafeInteger(trackId) || trackId < 1) return res.status(400).json({ error: 'Invalid track ID.' });
+  const track = await getDb('SELECT id FROM tracks WHERE id = ?', [trackId]);
+  if (!track) return res.status(404).json({ error: 'Track not found.' });
+
+  const texts = await allDb(
+    `SELECT content_type, language_code, source_language_code, content, source_url, updated_at
+    FROM track_texts WHERE track_id = ? ORDER BY content_type, language_code`,
+    [trackId]
+  );
+  return res.json(texts);
+});
+
+app.put('/api/tracks/:id/texts', requireAuth, requireAdmin, async (req, res) => {
+  const trackId = Number(req.params.id);
+  if (!Number.isSafeInteger(trackId) || trackId < 1) return res.status(400).json({ error: 'Invalid track ID.' });
+  const track = await getDb('SELECT id FROM tracks WHERE id = ?', [trackId]);
+  if (!track) return res.status(404).json({ error: 'Track not found.' });
+
+  const { content_type, language_code, source_language_code, content, source_url } = req.body;
+  const isLanguageCode = (value) => typeof value === 'string' && /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(value);
+  if (!['lyrics', 'translation'].includes(content_type) || !isLanguageCode(language_code) || typeof content !== 'string') {
+    return res.status(400).json({ error: 'Provide a valid content type, language code, and text.' });
+  }
+  if (source_language_code != null && !isLanguageCode(source_language_code)) {
+    return res.status(400).json({ error: 'Invalid source language code.' });
+  }
+  if (source_url != null && typeof source_url !== 'string') {
+    return res.status(400).json({ error: 'Invalid source URL.' });
+  }
+
+  await runDb(`
+    INSERT INTO track_texts (track_id, content_type, language_code, source_language_code, content, source_url)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      source_language_code = VALUES(source_language_code),
+      content = VALUES(content),
+      source_url = VALUES(source_url),
+      updated_at = CURRENT_TIMESTAMP
+  `, [trackId, content_type, language_code, source_language_code || null, content, source_url || null]);
+
+  return res.json({ saved: true });
+});
+
+app.delete('/api/tracks/:id/texts/:contentType/:languageCode', requireAuth, requireAdmin, async (req, res) => {
+  const trackId = Number(req.params.id);
+  if (!Number.isSafeInteger(trackId) || trackId < 1) return res.status(400).json({ error: 'Invalid track ID.' });
+  if (!['lyrics', 'translation'].includes(req.params.contentType)) {
+    return res.status(400).json({ error: 'Invalid content type.' });
+  }
+
+  const result = await runDb(
+    'DELETE FROM track_texts WHERE track_id = ? AND content_type = ? AND language_code = ?',
+    [trackId, req.params.contentType, req.params.languageCode]
+  );
+  if (!result.changes) return res.status(404).json({ error: 'Track text not found.' });
+  return res.json({ deleted: true });
+});
 
 app.post('/api/auth/register', async (req, res) => {
   try {
@@ -389,7 +429,7 @@ app.post('/api/auth/register', async (req, res) => {
 
     const passwordHash = bcrypt.hashSync(password, 10);
     const result = await runDb(
-      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, bio, role) VALUES (?, ?, ?, ?, ?, ?, 'USER')`,
+      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, 'USER')`,
       [username, full_name, email, passwordHash, 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80', 'New to Musicfy.']
     );
 
@@ -426,7 +466,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 app.get('/api/artists', async (req, res) => {
   const rows = await allDb(`
     SELECT a.*, COUNT(r.id) AS release_count,
-      GROUP_CONCAT(g.name, ', ') AS genre_names
+      GROUP_CONCAT(g.name SEPARATOR ', ') AS genre_names
     FROM artists a
     LEFT JOIN releases r ON r.artist_id = a.id
     LEFT JOIN artist_genres ag ON ag.artist_id = a.id
@@ -471,7 +511,7 @@ app.post('/api/artists', requireAuth, requireAdmin, async (req, res) => {
   for (const genreName of genres) {
     const found = await getDb('SELECT id FROM genres WHERE name = ?', [genreName]);
     if (found) {
-      await runDb('INSERT OR IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [artist.id, found.id]);
+      await runDb('INSERT IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [artist.id, found.id]);
     }
   }
 
@@ -493,7 +533,7 @@ app.put('/api/artists/:id', requireAuth, requireAdmin, async (req, res) => {
   for (const genreName of genres) {
     const found = await getDb('SELECT id FROM genres WHERE name = ?', [genreName]);
     if (found) {
-      await runDb('INSERT OR IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [id, found.id]);
+      await runDb('INSERT IGNORE INTO artist_genres (artist_id, genre_id) VALUES (?, ?)', [id, found.id]);
     }
   }
 
@@ -570,6 +610,27 @@ app.get('/api/releases/:id', async (req, res) => {
   }
 
   const tracks = await allDb('SELECT * FROM tracks WHERE release_id = ? ORDER BY track_number ASC', [req.params.id]);
+  const trackIds = tracks.map((track) => track.id);
+  let trackTexts = [];
+  let trackLinks = [];
+  if (trackIds.length) {
+    const placeholders = trackIds.map(() => '?').join(', ');
+    trackTexts = await allDb(
+      `SELECT track_id, content_type, language_code, source_language_code, content, source_url
+      FROM track_texts WHERE track_id IN (${placeholders}) ORDER BY content_type, language_code`,
+      trackIds
+    );
+    trackLinks = await allDb(
+      `SELECT id, track_id, platform, url, link_type FROM track_links
+      WHERE track_id IN (${placeholders}) ORDER BY id`,
+      trackIds
+    );
+  }
+  const enrichedTracks = tracks.map((track) => ({
+    ...track,
+    texts: trackTexts.filter((text) => text.track_id === track.id),
+    links: trackLinks.filter((link) => link.track_id === track.id),
+  }));
   const reviews = await allDb(`
     SELECT rv.*, u.username, u.avatar_url,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
@@ -582,7 +643,7 @@ app.get('/api/releases/:id', async (req, res) => {
     ORDER BY rv.created_at DESC
   `, [currentUserId || 0, req.params.id]);
 
-  return res.json({ release, tracks, reviews });
+  return res.json({ release, tracks: enrichedTracks, reviews });
 });
 
 app.post('/api/releases', requireAuth, requireAdmin, async (req, res) => {
@@ -627,10 +688,11 @@ app.post('/api/releases', requireAuth, requireAdmin, async (req, res) => {
   );
 
   for (const [index, track] of tracks.entries()) {
-    await runDb(
+    const createdTrack = await runDb(
       `INSERT INTO tracks (release_id, title, duration, explicit, youtube_url, lyrics, translation, track_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [release.id, track.title || `Faixa ${index + 1}`, track.duration || '3:00', track.explicit ? 1 : 0, track.youtube_url || '', track.lyrics || '', track.translation || '', index + 1]
     );
+    await saveLegacyTrackContent(createdTrack.id, track);
   }
 
   if (!isFuture) {
@@ -652,6 +714,19 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
 
   const existingRelease = await getDb('SELECT * FROM releases WHERE id = ?', [id]);
   if (!existingRelease) return res.status(404).json({ error: 'Release not found.' });
+  if (!Array.isArray(tracks)) return res.status(400).json({ error: 'Tracks must be an array.' });
+
+  const existingTracks = await allDb('SELECT id FROM tracks WHERE release_id = ?', [id]);
+  const existingTrackIds = new Set(existingTracks.map((track) => track.id));
+  const retainedTrackIds = new Set();
+  for (const track of tracks) {
+    if (track.id == null) continue;
+    const trackId = Number(track.id);
+    if (!Number.isSafeInteger(trackId) || !existingTrackIds.has(trackId) || retainedTrackIds.has(trackId)) {
+      return res.status(400).json({ error: 'Track ID does not belong to this release or is duplicated.' });
+    }
+    retainedTrackIds.add(trackId);
+  }
 
   let resolvedArtistId = artist_id ? Number(artist_id) : existingRelease.artist_id;
   if (!resolvedArtistId && artist_name) {
@@ -673,12 +748,34 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
     [title || existingRelease.title, resolvedArtistId, cover_url || existingRelease.cover_url, release_type || existingRelease.release_type, release_date || existingRelease.release_date, genre || existingRelease.genre, description || existingRelease.description, isFuture ? 'PREVIEW' : 'ACTIVE', id]
   );
 
-  await runDb('DELETE FROM tracks WHERE release_id = ?', [id]);
+  const removedTrackIds = [...existingTrackIds].filter((trackId) => !retainedTrackIds.has(trackId));
+  if (removedTrackIds.length) {
+    const placeholders = removedTrackIds.map(() => '?').join(', ');
+    await runDb(`DELETE FROM playlist_tracks WHERE track_id IN (${placeholders})`, removedTrackIds);
+    await runDb(`DELETE FROM favorites WHERE track_id IN (${placeholders})`, removedTrackIds);
+    await runDb(`DELETE FROM tracks WHERE id IN (${placeholders})`, removedTrackIds);
+  }
   for (const [index, track] of tracks.entries()) {
+    const values = [track.title || `Faixa ${index + 1}`, track.duration || '3:00', track.explicit ? 1 : 0, track.youtube_url || '', track.lyrics || '', track.translation || '', index + 1];
+    let trackId = Number(track.id);
+    if (track.id != null) {
+      await runDb(
+        `UPDATE tracks SET title = ?, duration = ?, explicit = ?, youtube_url = ?, lyrics = ?, translation = ?, track_number = ? WHERE id = ? AND release_id = ?`,
+        [...values, trackId, id]
+      );
+    } else {
+      const createdTrack = await runDb(
+        `INSERT INTO tracks (release_id, title, duration, explicit, youtube_url, lyrics, translation, track_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, ...values]
+      );
+      trackId = createdTrack.id;
+    }
+    await runDb('DELETE FROM track_links WHERE track_id = ? AND platform = ?', [trackId, 'YouTube']);
     await runDb(
-      `INSERT INTO tracks (release_id, title, duration, explicit, youtube_url, lyrics, translation, track_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, track.title || `Faixa ${index + 1}`, track.duration || '3:00', track.explicit ? 1 : 0, track.youtube_url || '', track.lyrics || '', track.translation || '', index + 1]
+      `DELETE FROM track_texts WHERE track_id = ? AND language_code = 'und'`,
+      [trackId]
     );
+    await saveLegacyTrackContent(trackId, track);
   }
 
   return res.json({ message: 'Release updated.' });
