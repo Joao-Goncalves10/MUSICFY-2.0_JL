@@ -5,19 +5,14 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-<<<<<<< HEAD
 const mysql = require('mysql2/promise');
-=======
 const multer = require('multer');
-const sqlite3 = require('sqlite3').verbose();
->>>>>>> 85249e7c79ea5077a41f97740c6d34c51c5f783c
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET;
 
-<<<<<<< HEAD
 const requiredTidbSettings = ['TIDB_HOST', 'TIDB_USER', 'TIDB_PASSWORD', 'TIDB_DATABASE', 'JWT_SECRET'];
 const missingTidbSettings = requiredTidbSettings.filter((setting) => !process.env[setting]);
 if (missingTidbSettings.length) {
@@ -26,18 +21,17 @@ if (missingTidbSettings.length) {
 if (JWT_SECRET.length < 32) {
   throw new Error('JWT_SECRET must be at least 32 characters long.');
 }
-=======
-const dbDir = path.join(__dirname, 'data');
-fs.mkdirSync(dbDir, { recursive: true });
-const db = new sqlite3.Database(path.join(dbDir, 'musicfy.db'));
-const artistBannerUploadDir = path.join(__dirname, 'uploads', 'artist-banners');
+
+const uploadsRoot = process.env.UPLOADS_DIR
+  ? path.resolve(process.env.UPLOADS_DIR)
+  : path.join(__dirname, 'uploads');
+const artistBannerUploadDir = path.join(uploadsRoot, 'artist-banners');
 fs.mkdirSync(artistBannerUploadDir, { recursive: true });
 const artistBannerUpload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, callback) => callback(null, file.mimetype === 'image/gif'),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
->>>>>>> 85249e7c79ea5077a41f97740c6d34c51c5f783c
 
 const tidbPort = Number(process.env.TIDB_PORT || 4000);
 if (!Number.isInteger(tidbPort) || tidbPort < 1 || tidbPort > 65535) {
@@ -289,7 +283,6 @@ app.use('/uploads/artist-banners', express.static(artistBannerUploadDir));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, message: 'Musicfy API running.' }));
 
-<<<<<<< HEAD
 const linkEntityConfig = {
   artist: { table: 'artist_links', foreignKey: 'artist_id', sourceTable: 'artists' },
   release: { table: 'release_links', foreignKey: 'release_id', sourceTable: 'releases' },
@@ -428,7 +421,8 @@ app.delete('/api/tracks/:id/texts/:contentType/:languageCode', requireAuth, requ
   );
   if (!result.changes) return res.status(404).json({ error: 'Track text not found.' });
   return res.json({ deleted: true });
-=======
+});
+
 app.post('/api/uploads/artist-banner', requireAuth, requireAdmin, (req, res, next) => {
   artistBannerUpload.single('banner')(req, res, (error) => {
     if (error instanceof multer.MulterError) {
@@ -453,7 +447,6 @@ app.post('/api/uploads/artist-banner', requireAuth, requireAdmin, (req, res, nex
   const filename = `${crypto.randomBytes(16).toString('hex')}.gif`;
   await fs.promises.writeFile(path.join(artistBannerUploadDir, filename), req.file.buffer, { flag: 'wx' });
   return res.status(201).json({ url: `/uploads/artist-banners/${filename}` });
->>>>>>> 85249e7c79ea5077a41f97740c6d34c51c5f783c
 });
 
 app.post('/api/auth/register', async (req, res) => {
@@ -765,16 +758,30 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
   if (!existingRelease) return res.status(404).json({ error: 'Release not found.' });
   if (!Array.isArray(tracks)) return res.status(400).json({ error: 'Tracks must be an array.' });
 
-  const existingTracks = await allDb('SELECT id FROM tracks WHERE release_id = ?', [id]);
+  const existingTracks = await allDb('SELECT id FROM tracks WHERE release_id = ? ORDER BY track_number ASC, id ASC', [id]);
   const existingTrackIds = new Set(existingTracks.map((track) => track.id));
   const retainedTrackIds = new Set();
-  for (const track of tracks) {
+  const trackAssignments = new Array(tracks.length).fill(null);
+  for (const [index, track] of tracks.entries()) {
     if (track.id == null) continue;
     const trackId = Number(track.id);
     if (!Number.isSafeInteger(trackId) || !existingTrackIds.has(trackId) || retainedTrackIds.has(trackId)) {
       return res.status(400).json({ error: 'Track ID does not belong to this release or is duplicated.' });
     }
+    trackAssignments[index] = trackId;
     retainedTrackIds.add(trackId);
+  }
+  for (const [index, trackId] of trackAssignments.entries()) {
+    if (trackId != null) continue;
+    const positionalTrackId = existingTracks[index]?.id;
+    const fallbackTrackId = existingTracks.find((track) => !retainedTrackIds.has(track.id))?.id;
+    const assignedTrackId = positionalTrackId != null && !retainedTrackIds.has(positionalTrackId)
+      ? positionalTrackId
+      : fallbackTrackId;
+    if (assignedTrackId != null) {
+      trackAssignments[index] = assignedTrackId;
+      retainedTrackIds.add(assignedTrackId);
+    }
   }
 
   let resolvedArtistId = artist_id ? Number(artist_id) : existingRelease.artist_id;
@@ -797,18 +804,10 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
     [title || existingRelease.title, resolvedArtistId, cover_url || existingRelease.cover_url, release_type || existingRelease.release_type, release_date || existingRelease.release_date, genre || existingRelease.genre, description || existingRelease.description, isFuture ? 'PREVIEW' : 'ACTIVE', id]
   );
 
-<<<<<<< HEAD
-  const removedTrackIds = [...existingTrackIds].filter((trackId) => !retainedTrackIds.has(trackId));
-  if (removedTrackIds.length) {
-    const placeholders = removedTrackIds.map(() => '?').join(', ');
-    await runDb(`DELETE FROM playlist_tracks WHERE track_id IN (${placeholders})`, removedTrackIds);
-    await runDb(`DELETE FROM favorites WHERE track_id IN (${placeholders})`, removedTrackIds);
-    await runDb(`DELETE FROM tracks WHERE id IN (${placeholders})`, removedTrackIds);
-  }
   for (const [index, track] of tracks.entries()) {
     const values = [track.title || `Faixa ${index + 1}`, track.duration || '3:00', track.explicit ? 1 : 0, track.youtube_url || '', track.lyrics || '', track.translation || '', index + 1];
-    let trackId = Number(track.id);
-    if (track.id != null) {
+    let trackId = trackAssignments[index];
+    if (trackId != null) {
       await runDb(
         `UPDATE tracks SET title = ?, duration = ?, explicit = ?, youtube_url = ?, lyrics = ?, translation = ?, track_number = ? WHERE id = ? AND release_id = ?`,
         [...values, trackId, id]
@@ -826,39 +825,14 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
       [trackId]
     );
     await saveLegacyTrackContent(trackId, track);
-=======
-  const existingTracks = await allDb('SELECT id FROM tracks WHERE release_id = ? ORDER BY track_number ASC, id ASC', [id]);
-  for (const [index, track] of tracks.entries()) {
-    const values = [
-      track.title || `Faixa ${index + 1}`,
-      track.duration || '3:00',
-      track.explicit ? 1 : 0,
-      track.youtube_url || '',
-      track.lyrics || '',
-      track.translation || '',
-      index + 1,
-    ];
-
-    if (existingTracks[index]) {
-      await runDb(
-        'UPDATE tracks SET title = ?, duration = ?, explicit = ?, youtube_url = ?, lyrics = ?, translation = ?, track_number = ? WHERE id = ?',
-        [...values, existingTracks[index].id]
-      );
-    } else {
-      await runDb(
-        `INSERT INTO tracks (release_id, title, duration, explicit, youtube_url, lyrics, translation, track_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [id, ...values]
-      );
-    }
   }
 
-  const removedTrackIds = existingTracks.slice(tracks.length).map((track) => track.id);
+  const removedTrackIds = [...existingTrackIds].filter((trackId) => !retainedTrackIds.has(trackId));
   if (removedTrackIds.length) {
-    const placeholders = removedTrackIds.map(() => '?').join(',');
+    const placeholders = removedTrackIds.map(() => '?').join(', ');
     await runDb(`DELETE FROM playlist_tracks WHERE track_id IN (${placeholders})`, removedTrackIds);
     await runDb(`DELETE FROM favorites WHERE track_id IN (${placeholders})`, removedTrackIds);
     await runDb(`DELETE FROM tracks WHERE id IN (${placeholders})`, removedTrackIds);
->>>>>>> 85249e7c79ea5077a41f97740c6d34c51c5f783c
   }
 
   return res.json({ message: 'Release updated.' });
@@ -1156,9 +1130,19 @@ app.get('/api/dashboard', requireAuth, requireAdmin, async (req, res) => {
   return res.json(stats);
 });
 
+const distPath = path.join(__dirname, '..', 'dist');
+const serveClient = process.env.NODE_ENV === 'production' && fs.existsSync(distPath);
+if (serveClient) {
+  app.use(express.static(distPath));
+}
+
 app.use((req, res) => {
-  const distPath = path.join(__dirname, '..', 'dist');
-  if (process.env.NODE_ENV === 'production' && fs.existsSync(distPath)) {
+  if (
+    serveClient
+    && ['GET', 'HEAD'].includes(req.method)
+    && !req.path.startsWith('/api')
+    && !path.extname(req.path)
+  ) {
     return res.sendFile(path.join(distPath, 'index.html'));
   }
   return res.status(404).json({ error: 'Route not found.' });
@@ -1171,4 +1155,7 @@ async function startServer() {
   });
 }
 
-startServer();
+startServer().catch((error) => {
+  console.error('Failed to start Musicfy API:', error);
+  process.exitCode = 1;
+});

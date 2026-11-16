@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: musicfy
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TIDB_HOST
+        sync: false
+      - key: TIDB_PORT
+        value: "4000"
+      - key: TIDB_USER
+        sync: false
+      - key: TIDB_PASSWORD
+        sync: false
+      - key: TIDB_DATABASE
+        value: musicfy
+      - key: MUSICFY_ADMIN_USERNAME
+        value: admin
+      - key: MUSICFY_ADMIN_NAME
+        value: Musicfy Admin
+      - key: MUSICFY_ADMIN_EMAIL
+        value: admin@musicfy.dev
+      - key: MUSICFY_ADMIN_PASSWORD
+        sync: false
