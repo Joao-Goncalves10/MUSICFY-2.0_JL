@@ -50,6 +50,13 @@ function getImageExtension(buffer) {
   return null;
 }
 
+const imageMimeTypes = {
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+};
+
 const isValidImageUrl = (value) => value == null || (typeof value === 'string' && value.length <= 512);
 
 const tidbPort = Number(process.env.TIDB_PORT || 4000);
@@ -513,8 +520,29 @@ app.post('/api/uploads/image', requireAuth, (req, res, next) => {
   }
 
   const filename = `${crypto.randomBytes(16).toString('hex')}.${extension}`;
-  await fs.promises.writeFile(path.join(imageUploadDir, filename), req.file.buffer, { flag: 'wx' });
-  return res.status(201).json({ url: `/uploads/images/${filename}` });
+  const imageId = filename.slice(0, filename.lastIndexOf('.'));
+  await runDb(
+    'INSERT INTO image_assets (id, mime_type, image_data) VALUES (?, ?, ?)',
+    [imageId, imageMimeTypes[extension], req.file.buffer]
+  );
+  return res.status(201).json({ url: `/api/images/${imageId}` });
+});
+
+app.get('/api/images/:id', async (req, res) => {
+  if (!/^[a-f\d]{32}$/i.test(req.params.id)) {
+    return res.status(404).json({ error: 'Image not found.' });
+  }
+
+  const image = await getDb(
+    'SELECT mime_type, image_data FROM image_assets WHERE id = ?',
+    [req.params.id]
+  );
+  if (!image) return res.status(404).json({ error: 'Image not found.' });
+
+  res.set('Content-Type', image.mime_type);
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('Cache-Control', 'public, max-age=31536000, immutable');
+  return res.send(image.image_data);
 });
 
 app.post('/api/auth/register', async (req, res) => {
