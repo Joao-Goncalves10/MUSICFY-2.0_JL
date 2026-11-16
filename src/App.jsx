@@ -416,6 +416,7 @@ function ArtistsPage() {
 
 function ArtistDetailPage() {
   const { artistId } = useParams();
+  const { user } = useAuth();
   const [artistData, setArtistData] = useState(null);
 
   useEffect(() => {
@@ -456,6 +457,11 @@ function ArtistDetailPage() {
           <a href="#artist-discography">Lançamentos</a>
           <a href="#artist-about">Sobre</a>
         </nav>
+        {user?.role === 'ADMIN' && (
+          <Link to={`/admin?editArtist=${artistData.artist.id}`} className="secondary-btn compact-btn edit-release-action">
+            Editar perfil
+          </Link>
+        )}
       </div>
 
       <section className="artist-discography" id="artist-discography">
@@ -1466,6 +1472,24 @@ function AdminPage() {
     }, { replace: true });
     handleReleaseEdit(release);
   }, [releaseList, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    const artistIdToEdit = searchParams.get('editArtist');
+    if (!artistIdToEdit) return;
+
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete('editArtist');
+      return next;
+    }, { replace: true });
+
+    api.get(`/artists/${encodeURIComponent(artistIdToEdit)}`)
+      .then((res) => handleArtistEdit({
+        ...res.data.artist,
+        genre_names: (res.data.genres || []).join(', '),
+      }))
+      .catch((error) => reportAdminError(error, 'Não foi possível carregar o artista para edição.'));
+  }, [searchParams, setSearchParams]);
 
   const handleReleaseDelete = async (releaseId) => {
     if (!window.confirm('Deseja excluir este lançamento?')) return;

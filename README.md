@@ -25,7 +25,7 @@ This combination keeps the project lightweight while still providing a real pers
 - User profile page
 - Playlist and favorites support
 - Pre-save flow and notification model
-- Admin dashboard for creating artists and releases
+- Admin dashboard for creating and editing artists and releases, with edit shortcuts on artist and release detail pages
 - Responsive Frutiger Aero UI
 
 ## Local setup
