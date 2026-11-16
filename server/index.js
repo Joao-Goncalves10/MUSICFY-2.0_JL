@@ -527,13 +527,15 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 
 app.get('/api/artists', async (req, res) => {
   const rows = await allDb(`
-    SELECT a.*, COUNT(r.id) AS release_count,
-      GROUP_CONCAT(g.name SEPARATOR ', ') AS genre_names
+    SELECT a.*,
+      (SELECT COUNT(*) FROM releases r WHERE r.artist_id = a.id) AS release_count,
+      (
+        SELECT GROUP_CONCAT(g.name SEPARATOR ', ')
+        FROM artist_genres ag
+        JOIN genres g ON g.id = ag.genre_id
+        WHERE ag.artist_id = a.id
+      ) AS genre_names
     FROM artists a
-    LEFT JOIN releases r ON r.artist_id = a.id
-    LEFT JOIN artist_genres ag ON ag.artist_id = a.id
-    LEFT JOIN genres g ON g.id = ag.genre_id
-    GROUP BY a.id
     ORDER BY a.name ASC
   `);
 
@@ -634,12 +636,14 @@ app.delete('/api/artists/:id', requireAuth, requireAdmin, async (req, res) => {
 app.get('/api/releases', async (req, res) => {
   const rows = await allDb(`
     SELECT r.*, a.name AS artist_name, a.image_url AS artist_image,
-      ROUND(AVG(rv.rating), 1) AS avg_rating,
-      COUNT(rv.id) AS review_count
+      rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
-    LEFT JOIN reviews rv ON rv.release_id = r.id
-    GROUP BY r.id
+    LEFT JOIN (
+      SELECT release_id, ROUND(AVG(rating), 1) AS avg_rating, COUNT(*) AS review_count
+      FROM reviews
+      GROUP BY release_id
+    ) rv ON rv.release_id = r.id
     ORDER BY r.release_date DESC
   `);
 
@@ -649,13 +653,15 @@ app.get('/api/releases', async (req, res) => {
 app.get('/api/releases/:id', async (req, res) => {
   const release = await getDb(`
     SELECT r.*, a.name AS artist_name,
-      ROUND(AVG(rv.rating), 1) AS avg_rating,
-      COUNT(rv.id) AS review_count
+      rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
-    LEFT JOIN reviews rv ON rv.release_id = r.id
+    LEFT JOIN (
+      SELECT release_id, ROUND(AVG(rating), 1) AS avg_rating, COUNT(*) AS review_count
+      FROM reviews
+      GROUP BY release_id
+    ) rv ON rv.release_id = r.id
     WHERE r.id = ?
-    GROUP BY r.id
   `, [req.params.id]);
 
   if (!release) return res.status(404).json({ error: 'Release not found.' });
@@ -1024,11 +1030,10 @@ app.get('/api/explore', async (req, res) => {
   `);
 
   const artists = await allDb(`
-    SELECT a.*, COUNT(r.id) AS release_count
+    SELECT a.*,
+      (SELECT COUNT(*) FROM releases r WHERE r.artist_id = a.id) AS release_count
     FROM artists a
-    LEFT JOIN releases r ON r.artist_id = a.id
-    GROUP BY a.id
-    ORDER BY release_count DESC
+    ORDER BY release_count DESC, a.name ASC
     LIMIT 5
   `);
 
@@ -1150,6 +1155,18 @@ app.get('/api/dashboard', requireAuth, requireAdmin, async (req, res) => {
     reviews: await getDb('SELECT COUNT(*) AS count FROM reviews'),
   };
   return res.json(stats);
+});
+
+app.use((error, req, res, next) => {
+  console.error(`Unhandled request error (${req.method} ${req.path}):`, error);
+  if (res.headersSent) return next(error);
+
+  const status = Number(error.status || error.statusCode);
+  const isClientError = Number.isInteger(status) && status >= 400 && status < 500;
+  const message = isClientError && typeof error.message === 'string'
+    ? error.message
+    : 'Erro interno no servidor. Consulte os logs do Render.';
+  return res.status(isClientError ? status : 500).json({ error: message });
 });
 
 const distPath = path.join(__dirname, '..', 'dist');

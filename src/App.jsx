@@ -1224,6 +1224,7 @@ function AdminPage() {
   const [isArtistBannerUploading, setIsArtistBannerUploading] = useState(false);
   const [editingArtistId, setEditingArtistId] = useState(null);
   const [editingReleaseId, setEditingReleaseId] = useState(null);
+  const [adminError, setAdminError] = useState('');
   const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
   const [releaseForm, setReleaseForm] = useState({
     title: '',
@@ -1238,6 +1239,11 @@ function AdminPage() {
   });
   const [featuredForm, setFeaturedForm] = useState({ release_id: '', sort_order: 1 });
 
+  const reportAdminError = (error, fallback) => {
+    const message = error.response?.data?.error;
+    setAdminError(typeof message === 'string' && message ? message : fallback);
+  };
+
   const refreshCatalogLists = async () => {
     try {
       const [artistsRes, releasesRes] = await Promise.all([api.get('/artists'), api.get('/releases')]);
@@ -1245,11 +1251,14 @@ function AdminPage() {
       setReleaseList(releasesRes.data || []);
     } catch (error) {
       console.error(error);
+      reportAdminError(error, 'Não foi possível carregar o catálogo. Consulte os logs do servidor.');
     }
   };
 
   useEffect(() => {
-    api.get('/dashboard').then((res) => setStats(res.data)).catch(console.error);
+    api.get('/dashboard')
+      .then((res) => setStats(res.data))
+      .catch((error) => reportAdminError(error, 'Não foi possível carregar o painel administrativo.'));
     refreshCatalogLists();
   }, [user]);
 
@@ -1268,20 +1277,25 @@ function AdminPage() {
 
   const submitArtist = async (e) => {
     e.preventDefault();
+    setAdminError('');
     const payload = {
       ...artistForm,
       genres: artistForm.genres.split(',').map((g) => g.trim()).filter(Boolean),
     };
 
-    if (editingArtistId) {
-      await api.put(`/artists/${editingArtistId}`, payload);
-    } else {
-      await api.post('/artists', payload);
-    }
+    try {
+      if (editingArtistId) {
+        await api.put(`/artists/${editingArtistId}`, payload);
+      } else {
+        await api.post('/artists', payload);
+      }
 
-    alert(editingArtistId ? 'Artista atualizado com sucesso.' : 'Artista criado.');
-    resetArtistForm();
-    refreshCatalogLists();
+      alert(editingArtistId ? 'Artista atualizado com sucesso.' : 'Artista criado.');
+      resetArtistForm();
+      refreshCatalogLists();
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível salvar o artista. Consulte os logs do servidor.');
+    }
   };
 
   const updateTrack = (index, field, value) => {
@@ -1322,6 +1336,7 @@ function AdminPage() {
 
   const submitRelease = async (e) => {
     e.preventDefault();
+    setAdminError('');
 
     const validTracks = releaseForm.tracks
       .filter((track) => track.title || track.youtube_url || track.lyrics || track.translation)
@@ -1340,36 +1355,50 @@ function AdminPage() {
       artist_name: releaseForm.artist_name || undefined,
       tracks: validTracks,
     };
-    if (editingReleaseId) {
-      await api.put(`/releases/${editingReleaseId}`, payload);
-    } else {
-      await api.post('/releases', payload);
-    }
+    try {
+      if (editingReleaseId) {
+        await api.put(`/releases/${editingReleaseId}`, payload);
+      } else {
+        await api.post('/releases', payload);
+      }
 
-    alert(editingReleaseId ? 'Álbum atualizado com sucesso.' : 'Lançamento criado.');
-    resetReleaseForm();
-    refreshCatalogLists();
+      alert(editingReleaseId ? 'Álbum atualizado com sucesso.' : 'Lançamento criado.');
+      resetReleaseForm();
+      refreshCatalogLists();
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível salvar o lançamento. Confira a data e o artista.');
+    }
   };
 
   const resetCatalog = async () => {
     const confirmed = window.confirm('Deseja zerar todos os artistas e lançamentos da plataforma? Esta ação não remove usuários.');
     if (!confirmed) return;
 
-    await api.post('/admin/reset-catalog');
-    alert('Catálogo zerado. Você pode criar novos artistas e álbuns agora.');
-    api.get('/dashboard').then((res) => setStats(res.data)).catch(console.error);
-    refreshCatalogLists();
+    setAdminError('');
+    try {
+      await api.post('/admin/reset-catalog');
+      alert('Catálogo zerado. Você pode criar novos artistas e álbuns agora.');
+      api.get('/dashboard').then((res) => setStats(res.data)).catch(console.error);
+      refreshCatalogLists();
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível zerar o catálogo. Consulte os logs do servidor.');
+    }
   };
 
   const submitFeatured = async (e) => {
     e.preventDefault();
-    await api.post('/admin/featured', {
-      release_id: Number(featuredForm.release_id),
-      sort_order: Number(featuredForm.sort_order),
-    });
-    alert('Destaque atualizado no carrossel inicial.');
-    setFeaturedForm({ release_id: '', sort_order: 1 });
-    refreshCatalogLists();
+    setAdminError('');
+    try {
+      await api.post('/admin/featured', {
+        release_id: Number(featuredForm.release_id),
+        sort_order: Number(featuredForm.sort_order),
+      });
+      alert('Destaque atualizado no carrossel inicial.');
+      setFeaturedForm({ release_id: '', sort_order: 1 });
+      refreshCatalogLists();
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível salvar o destaque. Confira o lançamento selecionado.');
+    }
   };
 
   const handleArtistEdit = (artist) => {
@@ -1386,11 +1415,16 @@ function AdminPage() {
 
   const handleArtistDelete = async (artistId) => {
     if (!window.confirm('Deseja excluir este artista e seus lançamentos?')) return;
-    await api.delete(`/artists/${artistId}`);
-    alert('Artista removido.');
-    if (editingArtistId === artistId) resetArtistForm();
-    refreshCatalogLists();
-    api.get('/dashboard').then((res) => setStats(res.data)).catch(console.error);
+    setAdminError('');
+    try {
+      await api.delete(`/artists/${artistId}`);
+      alert('Artista removido.');
+      if (editingArtistId === artistId) resetArtistForm();
+      refreshCatalogLists();
+      api.get('/dashboard').then((res) => setStats(res.data)).catch(console.error);
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível excluir o artista. Consulte os logs do servidor.');
+    }
   };
 
   const handleReleaseEdit = async (release) => {
@@ -1437,15 +1471,21 @@ function AdminPage() {
 
   const handleReleaseDelete = async (releaseId) => {
     if (!window.confirm('Deseja excluir este lançamento?')) return;
-    await api.delete(`/releases/${releaseId}`);
-    alert('Lançamento removido.');
-    refreshCatalogLists();
-    api.get('/dashboard').then((res) => setStats(res.data)).catch(console.error);
+    setAdminError('');
+    try {
+      await api.delete(`/releases/${releaseId}`);
+      alert('Lançamento removido.');
+      refreshCatalogLists();
+      api.get('/dashboard').then((res) => setStats(res.data)).catch(console.error);
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível excluir o lançamento. Consulte os logs do servidor.');
+    }
   };
 
   return (
     <div className="content-stack">
       <div className="section-header"><h2>Painel administrativo</h2></div>
+      {adminError && <p className="error-text" role="alert">{adminError}</p>}
 
       <div className="admin-actions">
         <button type="button" className="secondary-btn" onClick={resetCatalog}>Zerar catálogo</button>
