@@ -1638,6 +1638,7 @@ textarea {
 
 .artist-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 28px;
   padding: 0 6px;
