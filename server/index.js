@@ -1157,6 +1157,18 @@ app.get('/api/dashboard', requireAuth, requireAdmin, async (req, res) => {
   return res.json(stats);
 });
 
+app.use((error, req, res, next) => {
+  console.error(`Unhandled request error (${req.method} ${req.path}):`, error);
+  if (res.headersSent) return next(error);
+
+  const status = Number(error.status || error.statusCode);
+  const isClientError = Number.isInteger(status) && status >= 400 && status < 500;
+  const message = isClientError && typeof error.message === 'string'
+    ? error.message
+    : 'Erro interno no servidor. Consulte os logs do Render.';
+  return res.status(isClientError ? status : 500).json({ error: message });
+});
+
 const distPath = path.join(__dirname, '..', 'dist');
 const serveClient = process.env.NODE_ENV === 'production' && fs.existsSync(distPath);
 if (serveClient) {
