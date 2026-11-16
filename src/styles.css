@@ -749,6 +749,12 @@ select:hover {
   text-transform: uppercase;
 }
 
+.admin-form-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
 .admin-listing-panel {
   width: 100%;
   display: grid;

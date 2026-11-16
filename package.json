@@ -13,6 +13,7 @@
     "build": "vite build",
     "start": "node server/index.js",
     "admin:reset-password": "node server/reset-admin-password.js",
+    "db:import-sqlite-catalog": "node server/import-sqlite-catalog.js",
     "test": "echo \"No automated tests configured yet\""
   },
   "keywords": [],

@@ -1388,6 +1388,7 @@ function AdminPage() {
     if (!window.confirm('Deseja excluir este artista e seus lançamentos?')) return;
     await api.delete(`/artists/${artistId}`);
     alert('Artista removido.');
+    if (editingArtistId === artistId) resetArtistForm();
     refreshCatalogLists();
     api.get('/dashboard').then((res) => setStats(res.data)).catch(console.error);
   };
@@ -1465,9 +1466,14 @@ function AdminPage() {
               <span>{editingArtistId ? 'Atualize o perfil e a identidade visual' : 'Perfil e identidade visual'}</span>
             </div>
             {editingArtistId && (
-              <button type="button" className="ghost-btn compact-btn" onClick={resetArtistForm}>
-                Cancelar edição
-              </button>
+              <div className="admin-form-header-actions">
+                <button type="button" className="ghost-btn compact-btn" onClick={resetArtistForm}>
+                  Cancelar edição
+                </button>
+                <button type="button" className="ghost-btn compact-btn" onClick={() => handleArtistDelete(editingArtistId)}>
+                  Excluir artista
+                </button>
+              </div>
             )}
           </div>
           <input placeholder="Nome do artista" value={artistForm.name} onChange={(e) => setArtistForm({ ...artistForm, name: e.target.value })} />
