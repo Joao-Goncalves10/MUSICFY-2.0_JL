@@ -235,7 +235,7 @@ async function initializeDatabase() {
   }
 
   const artistCount = await getDb('SELECT COUNT(*) AS count FROM artists');
-  if (Number(artistCount?.count || 0) === 0) {
+  if (Number(artistCount?.count || 0) === 0 && process.env.NODE_ENV !== 'production') {
     const firstArtist = await runDb(
       `INSERT INTO artists (name, bio, image_url, banner_url, genre) VALUES (?, ?, ?, ?, ?)`,
       ['Solar Tide', 'A luminous synth-pop project with cinematic hooks and club-ready textures.', 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80', 'Pop']

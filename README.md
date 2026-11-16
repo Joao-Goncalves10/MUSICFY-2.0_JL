@@ -57,7 +57,7 @@ This combination keeps the project lightweight while still providing a real pers
 
    npm run dev
 
-This runs both the API and the Vite front-end dev server. On startup, the API applies `server/schema.sql` to the configured TiDB database and seeds demo content if the tables are empty.
+This runs both the API and the Vite front-end dev server. On startup, the API applies `server/schema.sql` to the configured TiDB database and seeds demo content if the tables are empty. Production does not automatically add the three demo artists, so deleting the catalog there will not recreate them on the next restart.
 
 - Front end: http://localhost:5173
 - API: http://localhost:4000
@@ -91,6 +91,22 @@ If your computer cannot connect to TiDB, reset through Render instead: set `MUSI
 The TiDB schema is defined in `server/schema.sql` using MySQL-compatible types and syntax. The API applies it to the database named by `TIDB_DATABASE` at startup. The database must already exist in TiDB Cloud. Connection settings are read from `.env`; the server fails with a configuration error if required `TIDB_*` values are missing.
 
 The relational catalog links artists to releases and releases (albums, EPs, or singles) to tracks. Artist, release, and track URLs are stored in `artist_links`, `release_links`, and `track_links`. Lyrics and translations are stored in `track_texts`, keyed by track, content type, and language code; use `und` when the language is unknown. The existing local SQLite database is not uploaded or copied to TiDB automatically; it remains untouched.
+
+### Importing a local SQLite catalog
+
+The import command requires Node.js 22.12 or newer and reads the SQLite source in read-only mode. From the project root, preview the default `server/data/musicfy.db`:
+
+```powershell
+npm run db:import-sqlite-catalog
+```
+
+The preview reports catalog counts and does not connect to TiDB. To import, first allow your current public IP in the TiDB Cloud cluster's IP Access List, then run:
+
+```powershell
+npm run db:import-sqlite-catalog -- --apply
+```
+
+The command imports artists, genres, artist-genre relationships, releases, and tracks (including legacy lyrics, translations, and YouTube URLs). It reuses matching artist names, matches releases by artist/title/date, skips existing track numbers, and runs in a transaction. It does not import users or their passwords, reviews, playlists, favorites, notifications, or separate link/translation tables not present in the legacy SQLite database.
 
 User passwords are stored as bcrypt hashes. Reviews and their likes use `reviews` and `review_likes`; track favorites use `favorites`. Playlists, playlist tracks, pre-saves, notifications, and featured releases are persisted in their corresponding tables. A new database is seeded with roles, the configured admin account, a demo user, artists, releases, and tracks.
 
