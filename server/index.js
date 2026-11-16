@@ -26,12 +26,31 @@ const uploadsRoot = process.env.UPLOADS_DIR
   ? path.resolve(process.env.UPLOADS_DIR)
   : path.join(__dirname, 'uploads');
 const artistBannerUploadDir = path.join(uploadsRoot, 'artist-banners');
+const imageUploadDir = path.join(uploadsRoot, 'images');
 fs.mkdirSync(artistBannerUploadDir, { recursive: true });
+fs.mkdirSync(imageUploadDir, { recursive: true });
 const artistBannerUpload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, callback) => callback(null, file.mimetype === 'image/gif'),
   limits: { fileSize: 10 * 1024 * 1024 },
 });
+const supportedImageMimeTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  fileFilter: (req, file, callback) => callback(null, supportedImageMimeTypes.has(file.mimetype)),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+function getImageExtension(buffer) {
+  if (buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) return 'jpg';
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'png';
+  const gifSignature = buffer.subarray(0, 6).toString('ascii');
+  if (gifSignature === 'GIF87a' || gifSignature === 'GIF89a') return 'gif';
+  if (buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP') return 'webp';
+  return null;
+}
+
+const isValidImageUrl = (value) => value == null || (typeof value === 'string' && value.length <= 512);
 
 const tidbPort = Number(process.env.TIDB_PORT || 4000);
 if (!Number.isInteger(tidbPort) || tidbPort < 1 || tidbPort > 65535) {
@@ -302,6 +321,7 @@ app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use('/uploads/artist-banners', express.static(artistBannerUploadDir));
+app.use('/uploads/images', express.static(imageUploadDir));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, message: 'Musicfy API running.' }));
 
@@ -471,6 +491,32 @@ app.post('/api/uploads/artist-banner', requireAuth, requireAdmin, (req, res, nex
   return res.status(201).json({ url: `/uploads/artist-banners/${filename}` });
 });
 
+app.post('/api/uploads/image', requireAuth, (req, res, next) => {
+  imageUpload.single('image')(req, res, (error) => {
+    if (error instanceof multer.MulterError) {
+      if (error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({ error: 'A imagem deve ter no máximo 10 MB.' });
+      }
+      return res.status(400).json({ error: 'Não foi possível enviar a imagem.' });
+    }
+    if (error) return next(error);
+    return next();
+  });
+}, async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'Selecione uma imagem JPG, PNG, GIF ou WebP.' });
+  }
+
+  const extension = getImageExtension(req.file.buffer);
+  if (!extension) {
+    return res.status(415).json({ error: 'O conteúdo enviado não é uma imagem JPG, PNG, GIF ou WebP válida.' });
+  }
+
+  const filename = `${crypto.randomBytes(16).toString('hex')}.${extension}`;
+  await fs.promises.writeFile(path.join(imageUploadDir, filename), req.file.buffer, { flag: 'wx' });
+  return res.status(201).json({ url: `/uploads/images/${filename}` });
+});
+
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, full_name, email, password, confirmPassword } = req.body;
@@ -566,6 +612,9 @@ app.get('/api/artists/:id', async (req, res) => {
 app.post('/api/artists', requireAuth, requireAdmin, async (req, res) => {
   const { name, bio, image_url, banner_url, genres = [] } = req.body;
   if (!name) return res.status(400).json({ error: 'Artist name is required.' });
+  if (!isValidImageUrl(image_url) || !isValidImageUrl(banner_url)) {
+    return res.status(400).json({ error: 'Use a valid image URL with at most 512 characters, or upload an image file.' });
+  }
 
   const artist = await runDb(
     `INSERT INTO artists (name, bio, image_url, banner_url, genre) VALUES (?, ?, ?, ?, ?)`,
@@ -589,6 +638,9 @@ app.put('/api/artists/:id', requireAuth, requireAdmin, async (req, res) => {
   const existingArtist = await getDb('SELECT id FROM artists WHERE id = ?', [id]);
   if (!existingArtist) return res.status(404).json({ error: 'Artist not found.' });
   if (!name) return res.status(400).json({ error: 'Artist name is required.' });
+  if (!isValidImageUrl(image_url) || !isValidImageUrl(banner_url)) {
+    return res.status(400).json({ error: 'Use a valid image URL with at most 512 characters, or upload an image file.' });
+  }
 
   await runDb(
     `UPDATE artists SET name = ?, bio = ?, image_url = ?, banner_url = ?, genre = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
@@ -732,6 +784,9 @@ app.post('/api/releases', requireAuth, requireAdmin, async (req, res) => {
   if (!title || !release_type || !release_date) {
     return res.status(400).json({ error: 'Título, tipo e data de lançamento são obrigatórios.' });
   }
+  if (!isValidImageUrl(cover_url)) {
+    return res.status(400).json({ error: 'Use uma URL de capa com até 512 caracteres ou carregue um arquivo de imagem.' });
+  }
 
   let resolvedArtistId = artist_id ? Number(artist_id) : null;
   if (!resolvedArtistId && artist_name) {
@@ -785,6 +840,9 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
   const existingRelease = await getDb('SELECT * FROM releases WHERE id = ?', [id]);
   if (!existingRelease) return res.status(404).json({ error: 'Release not found.' });
   if (!Array.isArray(tracks)) return res.status(400).json({ error: 'Tracks must be an array.' });
+  if (!isValidImageUrl(cover_url)) {
+    return res.status(400).json({ error: 'Use uma URL de capa com até 512 caracteres ou carregue um arquivo de imagem.' });
+  }
 
   const existingTracks = await allDb('SELECT id FROM tracks WHERE release_id = ? ORDER BY track_number ASC, id ASC', [id]);
   const existingTrackIds = new Set(existingTracks.map((track) => track.id));
@@ -1004,6 +1062,10 @@ app.get('/api/profile/:userId', async (req, res) => {
 
 app.put('/api/users/me', requireAuth, async (req, res) => {
   const { username, full_name, bio, avatar_url, banner_url } = req.body;
+  if (!isValidImageUrl(avatar_url) || !isValidImageUrl(banner_url)) {
+    return res.status(400).json({ error: 'Use URLs de imagem com até 512 caracteres ou carregue arquivos de imagem.' });
+  }
+
   await runDb(
     `UPDATE users SET username = ?, full_name = ?, bio = ?, avatar_url = ?, banner_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     [username || '', full_name || '', bio || '', avatar_url || '', banner_url || '', req.user.id]

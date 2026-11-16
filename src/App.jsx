@@ -6,6 +6,14 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
 });
 
+const uploadImage = async (file) => {
+  const formData = new FormData();
+  formData.append('image', file);
+  const response = await api.post('/uploads/image', formData);
+  const apiOrigin = new URL(api.defaults.baseURL, window.location.origin).origin;
+  return new URL(response.data.url, apiOrigin).toString();
+};
+
 const AuthContext = createContext();
 
 function useAuth() {
@@ -911,6 +919,7 @@ function ProfilePage() {
   const { user } = useAuth();
   const [profile, setProfile] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [profileImageUploads, setProfileImageUploads] = useState(0);
   const [activeTab, setActiveTab] = useState('overview');
   const [form, setForm] = useState({ username: '', full_name: '', bio: '', avatar_url: '', banner_url: '' });
   const [playlistName, setPlaylistName] = useState('');
@@ -988,17 +997,21 @@ function ProfilePage() {
                 value={form.avatar_url}
                 onChange={(value) => setForm({ ...form, avatar_url: value })}
                 placeholder="URL da foto de perfil"
+                onImageUpload={uploadImage}
+                onUploadStateChange={(uploading) => setProfileImageUploads((count) => count + (uploading ? 1 : -1))}
               />
               <ImageUploadField
                 label="Banner do perfil"
                 value={form.banner_url}
                 onChange={(value) => setForm({ ...form, banner_url: value })}
                 placeholder="URL do banner do perfil"
+                onImageUpload={uploadImage}
+                onUploadStateChange={(uploading) => setProfileImageUploads((count) => count + (uploading ? 1 : -1))}
               />
             </div>
             <textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} placeholder="Biografia" rows="4" />
           </div>
-          <button type="button" className="primary-btn" onClick={saveProfile}>Salvar alterações</button>
+          <button type="button" className="primary-btn" disabled={profileImageUploads > 0} onClick={saveProfile}>Salvar alterações</button>
         </div>
       )}
 
@@ -1133,7 +1146,7 @@ function AuthPage() {
   );
 }
 
-function ImageUploadField({ label, value, onChange, placeholder, hint, onGifUpload, onUploadStateChange }) {
+function ImageUploadField({ label, value, onChange, placeholder, hint, onImageUpload, onUploadStateChange }) {
   const inputRef = useRef(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -1142,33 +1155,25 @@ function ImageUploadField({ label, value, onChange, placeholder, hint, onGifUplo
   const handleSelectedFile = async (file) => {
     if (!file) return;
 
-    const isGif = file.type === 'image/gif' || file.name.toLowerCase().endsWith('.gif');
-    if (!file.type.startsWith('image/') && !isGif) {
-      setUploadError('Selecione um arquivo de imagem.');
+    const supportedType = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type);
+    const supportedExtension = /\.(jpe?g|png|gif|webp)$/i.test(file.name);
+    if (!supportedType && !supportedExtension) {
+      setUploadError('Selecione uma imagem JPG, PNG, GIF ou WebP.');
       return;
     }
 
     setUploadError('');
-    if (isGif && onGifUpload) {
-      setIsUploading(true);
-      onUploadStateChange?.(true);
-      try {
-        onChange(await onGifUpload(file));
-      } catch (error) {
-        console.error('GIF upload failed:', error);
-        setUploadError(error.response?.data?.error || 'Não foi possível enviar o GIF. Tente novamente.');
-      } finally {
-        setIsUploading(false);
-        onUploadStateChange?.(false);
-      }
-      return;
+    setIsUploading(true);
+    onUploadStateChange?.(true);
+    try {
+      onChange(await onImageUpload(file));
+    } catch (error) {
+      console.error('Image upload failed:', error);
+      setUploadError(error.response?.data?.error || 'Não foi possível enviar a imagem. Tente novamente.');
+    } finally {
+      setIsUploading(false);
+      onUploadStateChange?.(false);
     }
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      onChange(reader.result || '');
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleFileChange = (event) => {
@@ -1200,7 +1205,7 @@ function ImageUploadField({ label, value, onChange, placeholder, hint, onGifUplo
           {isUploading ? 'Enviando...' : 'Carregar imagem'}
         </button>
       </div>
-      <input ref={inputRef} type="file" accept="image/*,.gif" hidden onChange={handleFileChange} />
+      <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.gif,.webp" hidden onChange={handleFileChange} />
       <div className="image-preview">
         {value ? (
           <img src={value} alt={label} />
@@ -1210,7 +1215,7 @@ function ImageUploadField({ label, value, onChange, placeholder, hint, onGifUplo
       </div>
       <div className="image-drop-hint">{hint || 'Arraste e solte ou use a URL abaixo'}</div>
       {uploadError && <p className="image-upload-error" role="alert">{uploadError}</p>}
-      <input type="url" value={value} placeholder={placeholder} disabled={isUploading} onChange={(e) => onChange(e.target.value)} />
+      <input type="url" maxLength={512} value={value} placeholder={placeholder} disabled={isUploading} onChange={(e) => onChange(e.target.value)} />
     </div>
   );
 }
@@ -1221,7 +1226,8 @@ function AdminPage() {
   const [stats, setStats] = useState({ artists: { count: 0 }, releases: { count: 0 }, users: { count: 0 }, reviews: { count: 0 } });
   const [artistList, setArtistList] = useState([]);
   const [releaseList, setReleaseList] = useState([]);
-  const [isArtistBannerUploading, setIsArtistBannerUploading] = useState(false);
+  const [artistImageUploads, setArtistImageUploads] = useState(0);
+  const [isReleaseCoverUploading, setIsReleaseCoverUploading] = useState(false);
   const [editingArtistId, setEditingArtistId] = useState(null);
   const [editingReleaseId, setEditingReleaseId] = useState(null);
   const [adminError, setAdminError] = useState('');
@@ -1265,14 +1271,6 @@ function AdminPage() {
   const resetArtistForm = () => {
     setEditingArtistId(null);
     setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
-  };
-
-  const uploadArtistBannerGif = async (file) => {
-    const formData = new FormData();
-    formData.append('banner', new File([file], file.name, { type: 'image/gif' }));
-    const response = await api.post('/uploads/artist-banner', formData);
-    const apiOrigin = new URL(api.defaults.baseURL, window.location.origin).origin;
-    return new URL(response.data.url, apiOrigin).toString();
   };
 
   const submitArtist = async (e) => {
@@ -1524,19 +1522,21 @@ function AdminPage() {
               value={artistForm.image_url}
               onChange={(value) => setArtistForm({ ...artistForm, image_url: value })}
               placeholder="https://..."
+              onImageUpload={uploadImage}
+              onUploadStateChange={(uploading) => setArtistImageUploads((count) => count + (uploading ? 1 : -1))}
             />
             <ImageUploadField
               label="Banner do artista"
               value={artistForm.banner_url}
               onChange={(value) => setArtistForm({ ...artistForm, banner_url: value })}
               placeholder="https://..."
-              hint="GIFs animados de até 10 MB são aceitos. Para arquivos maiores, cole a URL abaixo."
-              onGifUpload={uploadArtistBannerGif}
-              onUploadStateChange={setIsArtistBannerUploading}
+              hint="JPG, PNG, GIF ou WebP de até 10 MB. Você também pode informar uma URL."
+              onImageUpload={uploadImage}
+              onUploadStateChange={(uploading) => setArtistImageUploads((count) => count + (uploading ? 1 : -1))}
             />
           </div>
           <input placeholder="Gêneros, separados por vírgula" value={artistForm.genres} onChange={(e) => setArtistForm({ ...artistForm, genres: e.target.value })} />
-          <button type="submit" className="primary-btn" disabled={isArtistBannerUploading}>{editingArtistId ? 'Salvar alterações' : 'Criar artista'}</button>
+          <button type="submit" className="primary-btn" disabled={artistImageUploads > 0}>{editingArtistId ? 'Salvar alterações' : 'Criar artista'}</button>
         </form>
 
         <form className="admin-form glass-panel" onSubmit={submitRelease}>
@@ -1559,6 +1559,8 @@ function AdminPage() {
             value={releaseForm.cover_url}
             onChange={(value) => setReleaseForm({ ...releaseForm, cover_url: value })}
             placeholder="https://..."
+            onImageUpload={uploadImage}
+            onUploadStateChange={setIsReleaseCoverUploading}
           />
           <select value={releaseForm.release_type} onChange={(e) => setReleaseForm({ ...releaseForm, release_type: e.target.value })}>
             <option>Album</option>
@@ -1621,7 +1623,7 @@ function AdminPage() {
             ))}
           </div>
 
-          <button type="submit" className="primary-btn">{editingReleaseId ? 'Salvar alterações' : 'Criar lançamento'}</button>
+          <button type="submit" className="primary-btn" disabled={isReleaseCoverUploading}>{editingReleaseId ? 'Salvar alterações' : 'Criar lançamento'}</button>
         </form>
 
         <form className="admin-form glass-panel" onSubmit={submitFeatured}>
