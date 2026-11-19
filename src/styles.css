@@ -6119,6 +6119,83 @@ textarea {
   text-align: center;
 }
 
+.email-verification-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 18px;
+  padding: 14px 18px;
+  border: 1px solid rgba(197, 138, 46, 0.28);
+  border-radius: 16px;
+  background: rgba(235, 180, 77, 0.12);
+  color: var(--text);
+}
+
+.email-verification-notice > div,
+.email-verification-pending {
+  display: grid;
+  gap: 6px;
+}
+
+.email-verification-notice span,
+.email-verification-notice small,
+.email-verification-pending p {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.email-verification-notice .secondary-btn,
+.email-verification-pending .secondary-btn {
+  flex: 0 0 auto;
+}
+
+.email-verification-notice button:disabled,
+.email-verification-pending button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.email-verification-pending {
+  gap: 14px;
+  color: var(--text);
+}
+
+.email-verification-pending p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.auth-verification-page {
+  width: min(100%, 560px);
+  margin: clamp(24px, 7vh, 72px) auto;
+}
+
+.auth-verification-page h1 {
+  margin: 8px 0 12px;
+  color: var(--text);
+  font-size: clamp(1.5rem, 4vw, 2rem);
+}
+
+.auth-verification-page p:not(.auth-eyebrow) {
+  margin: 0 0 20px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.auth-verification-page .primary-btn {
+  display: inline-flex;
+  justify-content: center;
+  padding: 12px 18px;
+}
+
+@media (max-width: 640px) {
+  .email-verification-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 :root[data-theme="light"] body {
   background: var(--page-background);
 }

@@ -9,6 +9,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: TRUST_PROXY
+        value: "1"
       - key: JWT_SECRET
         generateValue: true
       - key: TIDB_HOST
@@ -26,6 +28,22 @@ services:
       - key: MUSICFY_ADMIN_NAME
         value: Musicfy Admin
       - key: MUSICFY_ADMIN_EMAIL
-        value: admin@musicfy.dev
+        sync: false
       - key: MUSICFY_ADMIN_PASSWORD
+        sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
         sync: false
