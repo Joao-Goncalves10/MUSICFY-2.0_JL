@@ -190,7 +190,11 @@ function AuthProvider({ children }) {
     setUser(null);
   };
 
-  const value = useMemo(() => ({ token, user, login, logout }), [token, user]);
+  const updateUser = useCallback((updates) => {
+    setUser((current) => current ? { ...current, ...updates } : current);
+  }, []);
+
+  const value = useMemo(() => ({ token, user, login, logout, updateUser }), [token, user, updateUser]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -211,14 +215,24 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <div className="app-shell">
-        <Navbar
-          theme={theme}
-          onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-        />
-        <div className="app-layout">
-          <Sidebar />
-          <main className="page-shell">
+      <AppContent
+        theme={theme}
+        onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+      />
+    </AuthProvider>
+  );
+}
+
+function AppContent({ theme, onToggleTheme }) {
+  const { user } = useAuth();
+
+  return (
+    <div className="app-shell">
+      <Navbar theme={theme} onToggleTheme={onToggleTheme} />
+      <div className={`app-layout${user?.is_suspended ? ' is-account-suspended' : ''}`}>
+        <Sidebar />
+        <main className="page-shell">
+          <AccountAccessGate>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/explore" element={<ExplorePage />} />
@@ -231,10 +245,24 @@ export default function App() {
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
             </Routes>
-          </main>
-        </div>
+          </AccountAccessGate>
+        </main>
       </div>
-    </AuthProvider>
+    </div>
+  );
+}
+
+function AccountAccessGate({ children }) {
+  const { user } = useAuth();
+  if (!user?.is_suspended) return children;
+
+  return (
+    <section className="suspended-account-page glass-panel">
+      <span className="suspended-account-icon" aria-hidden="true">!</span>
+      <p className="eyebrow">Acesso limitado</p>
+      <h1>Seu perfil está oculto</h1>
+      <p>Abra as notificações no topo da página para ver o aviso da equipe. Enquanto isso, o restante da conta ficará indisponível.</p>
+    </section>
   );
 }
 
@@ -257,6 +285,8 @@ function NavGlyph({ name }) {
 
 function Sidebar() {
   const { user } = useAuth();
+  if (user?.is_suspended) return null;
+
   const items = [
     { to: '/', label: 'Início', icon: 'home', end: true },
     { to: '/explore', label: 'Explorar', icon: 'explore' },
@@ -318,23 +348,25 @@ function Navbar({ theme, onToggleTheme }) {
   }, [query]);
 
   return (
-    <header className="topbar glass-panel">
+    <header className={`topbar glass-panel${user?.is_suspended ? ' is-account-suspended' : ''}`}>
       <div className="brand-wrap">
         <Link to="/" className="brand">MUSICFY</Link>
       </div>
 
-      <div className="search-wrap">
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar artistas ou lançamentos" />
-        {results.length > 0 && (
-          <div className="search-results">
-            {results.map((item) => (
-              <Link key={item.id + (item.name || item.title)} to={item.name ? `/artists/${item.id}` : `/releases/${item.id}`} onClick={() => setQuery('')}>
-                {item.name || item.title}
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
+      {!user?.is_suspended && (
+        <div className="search-wrap">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar artistas ou lançamentos" />
+          {results.length > 0 && (
+            <div className="search-results">
+              {results.map((item) => (
+                <Link key={item.id + (item.name || item.title)} to={item.name ? `/artists/${item.id}` : `/releases/${item.id}`} onClick={() => setQuery('')}>
+                  {item.name || item.title}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="topbar-account">
         <button
@@ -359,10 +391,17 @@ function Navbar({ theme, onToggleTheme }) {
         {user ? (
           <>
             <NotificationCenter />
-            <NavLink to={`/profile/${user.id}`} className="account-link">
-              <span className="account-avatar">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>
-              <span className="account-name">{user.full_name || user.username}</span>
-            </NavLink>
+            {user.is_suspended ? (
+              <span className="account-link">
+                <span className="account-avatar">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>
+                <span className="account-name">{user.full_name || user.username}</span>
+              </span>
+            ) : (
+              <NavLink to={`/profile/${user.id}`} className="account-link">
+                <span className="account-avatar">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>
+                <span className="account-name">{user.full_name || user.username}</span>
+              </NavLink>
+            )}
             <button className="logout-btn" onClick={logout}>Sair</button>
           </>
         ) : (
@@ -374,7 +413,7 @@ function Navbar({ theme, onToggleTheme }) {
 }
 
 function NotificationCenter() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const navigate = useNavigate();
   const rootRef = useRef(null);
   const [notifications, setNotifications] = useState([]);
@@ -387,12 +426,15 @@ function NotificationCenter() {
       const response = await api.get('/notifications');
       setNotifications(response.data.notifications || []);
       setUnreadCount(Number(response.data.unread_count || 0));
+      if (typeof response.data.account_suspended === 'boolean') {
+        updateUser({ is_suspended: response.data.account_suspended });
+      }
       setError('');
     } catch (requestError) {
       console.error(requestError);
       setError(requestError.response?.data?.error || 'Não foi possível carregar as notificações.');
     }
-  }, []);
+  }, [updateUser]);
 
   useEffect(() => {
     if (!user) return undefined;
@@ -450,6 +492,9 @@ function NotificationCenter() {
     if (type === 'USER_FOLLOW') return '♙';
     if (type === 'REVIEW_LIKE') return '♥';
     if (type === 'NEW_RELEASE') return '♫';
+    if (type === 'REVIEW_REMOVED') return '×';
+    if (type === 'ACCOUNT_SUSPENDED') return '!';
+    if (type === 'ACCOUNT_RESTORED') return '✓';
     return '•';
   };
 
@@ -518,11 +563,31 @@ function NotificationCenter() {
 
 function FeaturedCarousel({ slides, user }) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const [isAutoplayPaused, setIsAutoplayPaused] = useState(false);
+  const [isPointerOver, setIsPointerOver] = useState(false);
+  const [hasFocus, setHasFocus] = useState(false);
+  const [isDocumentVisible, setIsDocumentVisible] = useState(true);
   const pointerStartX = useRef(null);
+  const shouldPauseAutoplay = isAutoplayPaused || isPointerOver || hasFocus || !isDocumentVisible;
 
   useEffect(() => {
     setActiveIndex((current) => (slides.length ? current % slides.length : 0));
   }, [slides.length]);
+
+  useEffect(() => {
+    const updateVisibility = () => setIsDocumentVisible(document.visibilityState === 'visible');
+    updateVisibility();
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (slides.length < 2 || shouldPauseAutoplay) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      setActiveIndex((current) => (current + 1) % slides.length);
+    }, 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeIndex, shouldPauseAutoplay, slides.length]);
 
   if (!slides.length) return null;
 
@@ -551,6 +616,16 @@ function FeaturedCarousel({ slides, user }) {
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerCancel={() => { pointerStartX.current = null; }}
+      onPointerEnter={() => setIsPointerOver(true)}
+      onPointerLeave={() => setIsPointerOver(false)}
+      onFocusCapture={(event) => setHasFocus(!event.target.closest('.home-featured-autoplay'))}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setHasFocus(false);
+        } else {
+          setHasFocus(!event.relatedTarget.closest('.home-featured-autoplay'));
+        }
+      }}
     >
       <article className="home-featured-slide" key={activeSlide.id}>
         <img
@@ -574,6 +649,15 @@ function FeaturedCarousel({ slides, user }) {
       </article>
       {slides.length > 1 && (
         <>
+          <button
+            type="button"
+            className="home-featured-autoplay"
+            aria-label={isAutoplayPaused ? 'Ativar rotação automática' : 'Pausar rotação automática'}
+            aria-pressed={isAutoplayPaused}
+            onClick={() => setIsAutoplayPaused((paused) => !paused)}
+          >
+            <span aria-hidden="true">{isAutoplayPaused ? '▶' : 'Ⅱ'}</span>
+          </button>
           <button
             type="button"
             className="home-featured-arrow is-previous"
@@ -655,6 +739,16 @@ function HomePage() {
     )));
   };
 
+  const handleReviewUpdated = (updatedReview) => {
+    setReviews((current) => current.map((review) => (
+      String(review.id) === String(updatedReview.id) ? updatedReview : review
+    )));
+  };
+
+  const handleReviewDeleted = (reviewId) => {
+    setReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
+  };
+
   return (
     <div className="home-page">
       <section className="home-feed-column">
@@ -729,6 +823,12 @@ function HomePage() {
                       review={review}
                       user={user}
                       onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
+                    />
+                    <ReviewOwnerActions
+                      review={review}
+                      user={user}
+                      onUpdated={handleReviewUpdated}
+                      onDeleted={handleReviewDeleted}
                     />
                     <Link to={`/releases/${review.release_id}`} className="home-review-open-link">Abrir lançamento</Link>
                   </footer>
@@ -1014,6 +1114,217 @@ function ReviewLikeButton({ review, user, onChange }) {
       </button>
       {error && <span className="follow-error" role="alert">{error}</span>}
     </div>
+  );
+}
+
+function ReviewOwnerActions({ review, user, onUpdated, onDeleted }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [rating, setRating] = useState(Number(review.rating));
+  const [reviewText, setReviewText] = useState(review.review_text || '');
+  const [gifUrl, setGifUrl] = useState(review.gif_url || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isUploadingGif, setIsUploadingGif] = useState(false);
+  const [error, setError] = useState('');
+  const isOwner = user && Number(user.id) === Number(review.user_id);
+
+  if (!isOwner) return null;
+
+  const openEditor = () => {
+    setRating(Number(review.rating));
+    setReviewText(review.review_text || '');
+    setGifUrl(review.gif_url || '');
+    setError('');
+    setIsEditing(true);
+  };
+
+  const submitEdit = async (event) => {
+    event.preventDefault();
+    setIsSaving(true);
+    setError('');
+    try {
+      await api.put(`/reviews/${review.id}`, {
+        rating: Number(rating),
+        review_text: reviewText,
+        gif_url: gifUrl,
+      });
+      onUpdated({
+        ...review,
+        rating: Number(rating),
+        review_text: reviewText,
+        gif_url: gifUrl,
+      });
+      setIsEditing(false);
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Não foi possível salvar as alterações da resenha.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const uploadGif = async (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.type !== 'image/gif') {
+      setError('Selecione um arquivo GIF válido.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError('O GIF deve ter no máximo 10 MB.');
+      return;
+    }
+
+    setError('');
+    setIsUploadingGif(true);
+    try {
+      setGifUrl(await uploadImage(file));
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Não foi possível enviar o GIF.');
+    } finally {
+      setIsUploadingGif(false);
+    }
+  };
+
+  const deleteReview = async () => {
+    if (!window.confirm(`Excluir sua resenha de "${review.release_title || 'este lançamento'}"? Esta ação não pode ser desfeita.`)) return;
+    setIsDeleting(true);
+    setError('');
+    try {
+      await api.delete(`/reviews/${review.id}`);
+      onDeleted(review.id);
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Não foi possível excluir esta resenha.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="review-owner-actions">
+        <button type="button" className="secondary-btn compact-btn" onClick={openEditor}>
+          Editar resenha
+        </button>
+        <button type="button" className="danger-btn compact-btn" disabled={isDeleting} onClick={deleteReview}>
+          {isDeleting ? 'Excluindo…' : 'Excluir resenha'}
+        </button>
+        {error && !isEditing && <p className="review-error" role="alert">{error}</p>}
+      </div>
+
+      {isEditing && (
+        <div
+          className="modal-backdrop review-backdrop"
+          onClick={() => !isSaving && !isUploadingGif && setIsEditing(false)}
+        >
+          <section
+            className="review-modal glass-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`edit-review-title-${review.id}`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header className="review-modal-header">
+              <div>
+                <p className="eyebrow">Sua opinião importa</p>
+                <h2 id={`edit-review-title-${review.id}`}>Editar resenha</h2>
+              </div>
+              <button
+                type="button"
+                className="close-btn review-close-btn"
+                aria-label="Fechar edição"
+                disabled={isSaving || isUploadingGif}
+                onClick={() => setIsEditing(false)}
+              >
+                ×
+              </button>
+            </header>
+
+            <form className="review-form" onSubmit={submitEdit}>
+              <section className="review-rating-section">
+                <div className="review-rating-heading">
+                  <div>
+                    <h3>Que nota você daria?</h3>
+                    <p>Escolha uma nota de 0 a 10.</p>
+                  </div>
+                  <div className="review-score" aria-live="polite">
+                    <strong>{rating}</strong>
+                    <span>/10</span>
+                  </div>
+                </div>
+                <input
+                  className="review-rating-slider"
+                  type="range"
+                  min="0"
+                  max="10"
+                  step="1"
+                  value={rating}
+                  aria-label={`Nota: ${rating} de 10`}
+                  onChange={(event) => setRating(Number(event.target.value))}
+                />
+                <div className="review-rating-scale" aria-hidden="true">
+                  <span>Não gostei</span>
+                  <span>Adorei</span>
+                </div>
+              </section>
+
+              <label className="review-text-label" htmlFor={`edit-review-text-${review.id}`}>
+                <span>Conte o que achou <small>opcional</small></span>
+                <textarea
+                  id={`edit-review-text-${review.id}`}
+                  value={reviewText}
+                  onChange={(event) => setReviewText(event.target.value)}
+                  placeholder="O que mais chamou sua atenção neste lançamento?"
+                  rows="5"
+                  maxLength={300}
+                  disabled={isSaving || isUploadingGif}
+                />
+                <small className="review-character-count" aria-live="polite">{reviewText.length}/300 caracteres</small>
+              </label>
+
+              <div className="review-gif-picker">
+                <label htmlFor={`edit-review-gif-${review.id}`}>
+                  <span aria-hidden="true">▧</span>
+                  {isUploadingGif ? 'Enviando GIF…' : gifUrl ? 'Trocar GIF' : 'Adicionar GIF'}
+                </label>
+                <input
+                  id={`edit-review-gif-${review.id}`}
+                  type="file"
+                  accept="image/gif,.gif"
+                  onChange={uploadGif}
+                  disabled={isSaving || isUploadingGif}
+                />
+                {gifUrl && (
+                  <div className="review-gif-preview">
+                    <ReviewGif src={gifUrl} />
+                    <button type="button" className="ghost-btn compact-btn" onClick={() => setGifUrl('')}>
+                      Remover GIF
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {error && <p className="review-error" role="alert">{error}</p>}
+
+              <div className="review-modal-actions">
+                <button
+                  className="secondary-btn"
+                  type="button"
+                  disabled={isSaving || isUploadingGif}
+                  onClick={() => setIsEditing(false)}
+                >
+                  Cancelar
+                </button>
+                <button className="primary-btn" type="submit" disabled={isSaving || isUploadingGif}>
+                  {isSaving ? 'Salvando…' : 'Salvar alterações'}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1427,6 +1738,22 @@ function ReleaseDetailPage() {
     });
   };
 
+  const handleReviewUpdated = (updatedReview) => {
+    setReleaseInfo((current) => current ? ({
+      ...current,
+      reviews: current.reviews.map((review) => (
+        String(review.id) === String(updatedReview.id) ? updatedReview : review
+      )),
+    }) : current);
+  };
+
+  const handleReviewDeleted = (reviewId) => {
+    setReleaseInfo((current) => current ? ({
+      ...current,
+      reviews: current.reviews.filter((review) => String(review.id) !== String(reviewId)),
+    }) : current);
+  };
+
   if (!releaseInfo) return <div className="loading-panel">Carregando lançamento…</div>;
 
   const { release, tracks, reviews } = releaseInfo;
@@ -1832,6 +2159,12 @@ function ReleaseDetailPage() {
                   user={user}
                   onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
                 />
+                <ReviewOwnerActions
+                  review={review}
+                  user={user}
+                  onUpdated={handleReviewUpdated}
+                  onDeleted={handleReviewDeleted}
+                />
               </div>
             </div>
           ))}
@@ -1932,16 +2265,34 @@ function ProfilePage() {
     }) : current);
   };
 
+  const handleReviewUpdated = (updatedReview) => {
+    setProfile((current) => current ? ({
+      ...current,
+      reviews: current.reviews.map((review) => (
+        String(review.id) === String(updatedReview.id) ? updatedReview : review
+      )),
+    }) : current);
+  };
+
+  const handleReviewDeleted = (reviewId) => {
+    setProfile((current) => current ? ({
+      ...current,
+      reviews: current.reviews.filter((review) => String(review.id) !== String(reviewId)),
+    }) : current);
+  };
+
   if (!profile) return <div className="loading-panel">Carregando perfil…</div>;
 
   const isOwner = Number(user?.id) === Number(profile.user.id);
+  const profileBannerUrl = profile.user.banner_url || 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80';
 
   return (
     <div className="content-stack profile-page">
-      <div className="profile-hero glass-panel" style={{ backgroundImage: `url(${profile.user.banner_url || 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80'})` }}>
+      <div className="profile-hero glass-panel">
+        <img className="profile-hero-image" src={profileBannerUrl} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
         <div className="profile-copy">
           <img src={profile.user.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={profile.user.username} />
-          <div>
+          <div className="profile-copy-content">
             <h1>{profile.user.full_name}</h1>
             <p>@{profile.user.username}</p>
             {profile.user.bio && <span>{profile.user.bio}</span>}
@@ -2112,6 +2463,12 @@ function ProfilePage() {
                     {review.gif_url && <ReviewGif src={review.gif_url} />}
                     <small>{review.created_at}</small>
                     <ReviewLikeButton review={review} user={user} />
+                    <ReviewOwnerActions
+                      review={review}
+                      user={user}
+                      onUpdated={handleReviewUpdated}
+                      onDeleted={handleReviewDeleted}
+                    />
                   </div>
                 </article>
               ))}
@@ -2411,16 +2768,22 @@ function ImageUploadField({ label, value, onChange, placeholder, hint, onImageUp
 function AdminPage() {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [activeAdminSection, setActiveAdminSection] = useState('catalog');
   const [stats, setStats] = useState({ artists: { count: 0 }, releases: { count: 0 }, users: { count: 0 }, reviews: { count: 0 } });
   const [artistList, setArtistList] = useState([]);
   const [releaseList, setReleaseList] = useState([]);
   const [featuredList, setFeaturedList] = useState([]);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminReviews, setAdminReviews] = useState([]);
+  const [moderationQuery, setModerationQuery] = useState('');
+  const [isLoadingModeration, setIsLoadingModeration] = useState(false);
   const [artistImageUploads, setArtistImageUploads] = useState(0);
   const [isReleaseCoverUploading, setIsReleaseCoverUploading] = useState(false);
   const [editingArtistId, setEditingArtistId] = useState(null);
   const [editingReleaseId, setEditingReleaseId] = useState(null);
   const [editingFeaturedId, setEditingFeaturedId] = useState(null);
   const [adminError, setAdminError] = useState('');
+  const [adminNotice, setAdminNotice] = useState('');
   const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
   const [releaseForm, setReleaseForm] = useState({
     title: '',
@@ -2438,6 +2801,7 @@ function AdminPage() {
 
   const reportAdminError = (error, fallback) => {
     const message = error.response?.data?.error;
+    setAdminNotice('');
     setAdminError(typeof message === 'string' && message ? message : fallback);
   };
 
@@ -2463,6 +2827,26 @@ function AdminPage() {
       .catch((error) => reportAdminError(error, 'Não foi possível carregar o painel administrativo.'));
     refreshCatalogLists();
   }, [user]);
+
+  useEffect(() => {
+    if (activeAdminSection !== 'moderation') return undefined;
+    let active = true;
+    setIsLoadingModeration(true);
+    Promise.all([api.get('/admin/users'), api.get('/admin/reviews')])
+      .then(([usersResponse, reviewsResponse]) => {
+        if (!active) return;
+        setAdminUsers(usersResponse.data || []);
+        setAdminReviews(reviewsResponse.data || []);
+      })
+      .catch((error) => {
+        if (active) reportAdminError(error, 'Não foi possível carregar as ferramentas de moderação.');
+      })
+      .finally(() => {
+        if (active) setIsLoadingModeration(false);
+      });
+
+    return () => { active = false; };
+  }, [activeAdminSection]);
 
   const resetArtistForm = () => {
     setEditingArtistId(null);
@@ -2749,10 +3133,67 @@ function AdminPage() {
     }
   };
 
+  const handleUserSuspend = async (targetUser) => {
+    if (!window.confirm(`Ocultar o perfil de ${targetUser.full_name || targetUser.username}? A pessoa poderá entrar apenas para ler o aviso e a conta poderá ser reativada.`)) return;
+    setAdminError('');
+    setAdminNotice('');
+    try {
+      await api.delete(`/admin/users/${targetUser.id}`);
+      setAdminUsers((current) => current.map((item) => (
+        item.id === targetUser.id ? { ...item, is_suspended: true } : item
+      )));
+      setAdminNotice('Perfil ocultado. A pessoa recebeu uma notificação e terá acesso restrito.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível ocultar este perfil.');
+    }
+  };
+
+  const handleUserRestore = async (targetUser) => {
+    setAdminError('');
+    setAdminNotice('');
+    try {
+      await api.post(`/admin/users/${targetUser.id}/restore`);
+      setAdminUsers((current) => current.map((item) => (
+        item.id === targetUser.id ? { ...item, is_suspended: false } : item
+      )));
+      setAdminNotice('Perfil reativado. A pessoa foi avisada.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível reativar este perfil.');
+    }
+  };
+
+  const handleAdminReviewDelete = async (review) => {
+    if (!window.confirm(`Remover a resenha de ${review.full_name || review.username} sobre ${review.release_title}? O autor será notificado.`)) return;
+    setAdminError('');
+    setAdminNotice('');
+    try {
+      await api.delete(`/reviews/${review.id}`);
+      setAdminReviews((current) => current.filter((item) => item.id !== review.id));
+      setStats((current) => ({
+        ...current,
+        reviews: { count: Math.max(0, Number(current.reviews?.count || 0) - 1) },
+      }));
+      setAdminNotice('Resenha removida e seu autor foi notificado.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível remover esta resenha.');
+    }
+  };
+
+  const moderationSearch = moderationQuery.trim().toLocaleLowerCase();
+  const filteredAdminUsers = adminUsers.filter((item) => (
+    !moderationSearch
+    || `${item.full_name || ''} ${item.username || ''} ${item.email || ''}`.toLocaleLowerCase().includes(moderationSearch)
+  ));
+  const filteredAdminReviews = adminReviews.filter((item) => (
+    !moderationSearch
+    || `${item.full_name || ''} ${item.username || ''} ${item.release_title || ''} ${item.artist_name || ''} ${item.review_text || ''}`.toLocaleLowerCase().includes(moderationSearch)
+  ));
+
   return (
     <div className="content-stack">
       <div className="section-header"><h2>Painel administrativo</h2></div>
       {adminError && <p className="error-text" role="alert">{adminError}</p>}
+      {adminNotice && <p className="admin-notice" role="status">{adminNotice}</p>}
 
       <div className="stats-grid">
         <div className="stat-card glass-panel"><span>Artistas</span><strong>{stats.artists?.count || 0}</strong></div>
@@ -2761,7 +3202,41 @@ function AdminPage() {
         <div className="stat-card glass-panel"><span>Avaliações</span><strong>{stats.reviews?.count || 0}</strong></div>
       </div>
 
-      <div className="admin-stack">
+      <nav className="admin-section-nav" aria-label="Seções administrativas">
+        {[
+          { id: 'catalog', label: 'Catálogo', description: 'Artistas e lançamentos' },
+          { id: 'homepage', label: 'Destaques', description: 'Carrossel da página inicial' },
+          { id: 'moderation', label: 'Moderação', description: 'Perfis e resenhas' },
+        ].map((section) => (
+          <button
+            key={section.id}
+            id={`admin-tab-${section.id}`}
+            type="button"
+            aria-pressed={activeAdminSection === section.id}
+            className={`admin-section-tab${activeAdminSection === section.id ? ' is-active' : ''}`}
+            onClick={() => {
+              setActiveAdminSection(section.id);
+              setAdminError('');
+              setAdminNotice('');
+            }}
+          >
+            <strong>{section.label}</strong>
+            <span>{section.description}</span>
+          </button>
+        ))}
+      </nav>
+
+      {activeAdminSection === 'catalog' && (
+        <section aria-labelledby="admin-tab-catalog" className="admin-section">
+          <div className="admin-section-heading">
+            <div>
+              <span className="admin-section-kicker">Gerenciar conteúdo</span>
+              <h3>Catálogo musical</h3>
+              <p>Cadastre artistas e organize seus álbuns, EPs e singles.</p>
+            </div>
+          </div>
+
+          <div className="admin-stack">
         <form className="admin-form glass-panel" onSubmit={submitArtist}>
           <div className="admin-form-header">
             <div>
@@ -2907,7 +3382,60 @@ function AdminPage() {
 
           <button type="submit" className="primary-btn" disabled={isReleaseCoverUploading}>{editingReleaseId ? 'Salvar alterações' : 'Criar lançamento'}</button>
         </form>
+          </div>
 
+          <div className="admin-listing-panel glass-panel">
+            <div className="section-header compact"><h3>Artistas cadastrados <span className="admin-count">{artistList.length}</span></h3></div>
+            <div className="admin-list-grid">
+              {artistList.map((artist) => (
+                <div key={artist.id} className="admin-list-item">
+                  <img src={artist.image_url || artist.banner_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt="" />
+                  <div className="admin-list-copy">
+                    <strong>{artist.name}</strong>
+                    <small>{artist.genre_names || artist.genre || 'Sem gênero'}</small>
+                  </div>
+                  <div className="admin-list-actions">
+                    <button type="button" className="secondary-btn compact-btn" onClick={() => handleArtistEdit(artist)}>Editar</button>
+                    <button type="button" className="danger-btn compact-btn" onClick={() => handleArtistDelete(artist.id)}>Excluir</button>
+                  </div>
+                </div>
+              ))}
+              {!artistList.length && <p className="admin-empty-state">Nenhum artista cadastrado ainda.</p>}
+            </div>
+          </div>
+
+          <div className="admin-listing-panel glass-panel">
+            <div className="section-header compact"><h3>Lançamentos cadastrados <span className="admin-count">{releaseList.length}</span></h3></div>
+            <div className="admin-list-grid">
+              {releaseList.map((release) => (
+                <div key={release.id} className="admin-list-item">
+                  <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
+                  <div className="admin-list-copy">
+                    <strong>{release.title}</strong>
+                    <small>{release.artist_name} · {release.release_type}</small>
+                  </div>
+                  <div className="admin-list-actions">
+                    <button type="button" className="secondary-btn compact-btn" onClick={() => handleReleaseEdit(release)}>Editar</button>
+                    <button type="button" className="danger-btn compact-btn" onClick={() => handleReleaseDelete(release.id)}>Excluir</button>
+                  </div>
+                </div>
+              ))}
+              {!releaseList.length && <p className="admin-empty-state">Nenhum lançamento cadastrado ainda.</p>}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {activeAdminSection === 'homepage' && (
+        <section aria-labelledby="admin-tab-homepage" className="admin-section">
+          <div className="admin-section-heading">
+            <div>
+              <span className="admin-section-kicker">Vitrine da comunidade</span>
+              <h3>Carrossel da página inicial</h3>
+              <p>Escolha os lançamentos, banners, descrições e a ordem em que aparecem.</p>
+            </div>
+          </div>
+          <div className="admin-stack">
         <form id="featured-form" className={`admin-form glass-panel${editingFeaturedId ? ' is-editing-featured' : ''}`} onSubmit={submitFeatured}>
           <div className="admin-form-header">
             <div>
@@ -2960,9 +3488,8 @@ function AdminPage() {
             <button type="button" className="secondary-btn" onClick={cancelFeaturedEdit}>Cancelar edição</button>
           )}
         </form>
-      </div>
-
-      <div className="admin-listing-panel glass-panel">
+          </div>
+          <div className="admin-listing-panel glass-panel">
         <div className="section-header compact">
           <div>
             <h3>Destaques do carrossel</h3>
@@ -2992,51 +3519,84 @@ function AdminPage() {
               </div>
             </div>
           ))}
-          {!featuredList.length && <p className="image-drop-hint">Nenhum álbum no carrossel ainda.</p>}
+          {!featuredList.length && <p className="admin-empty-state">Nenhum destaque publicado ainda. Use o formulário acima para criar o primeiro.</p>}
         </div>
-      </div>
+          </div>
+        </section>
+      )}
 
-      <div className="admin-listing-panel glass-panel">
-        <div className="section-header compact">
-          <h3>Artistas cadastrados</h3>
-        </div>
-        <div className="admin-list-grid">
-          {artistList.map((artist) => (
-            <div key={artist.id} className="admin-list-item">
-              <img src={artist.image_url || artist.banner_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt={artist.name} />
-              <div>
-                <strong>{artist.name}</strong>
-                <small>{artist.genre_names || artist.genre || 'Sem gênero'}</small>
+      {activeAdminSection === 'moderation' && (
+        <section aria-labelledby="admin-tab-moderation" className="admin-section">
+          <div className="admin-section-heading">
+            <div>
+              <span className="admin-section-kicker">Segurança e comunidade</span>
+              <h3>Moderação</h3>
+              <p>Oculte e restaure perfis ou remova resenhas. As pessoas afetadas recebem um aviso no app.</p>
+            </div>
+          </div>
+          <label className="admin-moderation-search">
+            <span>Buscar por pessoa, álbum ou conteúdo</span>
+            <input
+              type="search"
+              value={moderationQuery}
+              onChange={(event) => setModerationQuery(event.target.value)}
+              placeholder="Digite um nome, e-mail, álbum ou trecho da resenha"
+            />
+          </label>
+          <div className="admin-moderation-grid">
+            <div className="admin-listing-panel glass-panel">
+              <div className="section-header compact">
+                <h3>Perfis <span className="admin-count">{filteredAdminUsers.length}</span></h3>
               </div>
-              <div className="admin-list-actions">
-                <button type="button" className="secondary-btn compact-btn" onClick={() => handleArtistEdit(artist)}>Editar</button>
-                <button type="button" className="ghost-btn compact-btn" onClick={() => handleArtistDelete(artist.id)}>Excluir</button>
+              <div className="admin-list-grid">
+                {isLoadingModeration && <p className="admin-empty-state">Carregando perfis…</p>}
+                {!isLoadingModeration && filteredAdminUsers.map((adminUser) => (
+                  <div key={adminUser.id} className={`admin-list-item moderation-user${adminUser.is_suspended ? ' is-suspended' : ''}`}>
+                    <div className="moderation-avatar" aria-hidden="true">
+                      {(adminUser.full_name || adminUser.username || '?').slice(0, 1).toLocaleUpperCase()}
+                    </div>
+                    <div className="admin-list-copy">
+                      <strong>{adminUser.full_name || adminUser.username}</strong>
+                      <small>@{adminUser.username} · {adminUser.email}</small>
+                      <span className={`moderation-status${adminUser.is_suspended ? ' is-suspended' : ''}`}>
+                        {adminUser.is_suspended ? 'Perfil oculto' : 'Perfil ativo'}
+                      </span>
+                    </div>
+                    {adminUser.is_suspended ? (
+                      <button type="button" className="secondary-btn compact-btn" onClick={() => handleUserRestore(adminUser)}>Reativar</button>
+                    ) : (
+                      <button type="button" className="danger-btn compact-btn" onClick={() => handleUserSuspend(adminUser)}>Ocultar perfil</button>
+                    )}
+                  </div>
+                ))}
+                {!isLoadingModeration && !filteredAdminUsers.length && <p className="admin-empty-state">Nenhum perfil corresponde à busca.</p>}
               </div>
             </div>
-          ))}
-        </div>
-      </div>
 
-      <div className="admin-listing-panel glass-panel">
-        <div className="section-header compact">
-          <h3>Lançamentos cadastrados</h3>
-        </div>
-        <div className="admin-list-grid">
-          {releaseList.map((release) => (
-            <div key={release.id} className="admin-list-item">
-              <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
-              <div>
-                <strong>{release.title}</strong>
-                <small>{release.artist_name} • {release.release_type}</small>
+            <div className="admin-listing-panel glass-panel">
+              <div className="section-header compact">
+                <h3>Resenhas <span className="admin-count">{filteredAdminReviews.length}</span></h3>
               </div>
-              <div className="admin-list-actions">
-                <button type="button" className="secondary-btn compact-btn" onClick={() => handleReleaseEdit(release)}>Editar</button>
-                <button type="button" className="danger-btn compact-btn" onClick={() => handleReleaseDelete(release.id)}>Excluir</button>
+              <div className="admin-list-grid">
+                {isLoadingModeration && <p className="admin-empty-state">Carregando resenhas…</p>}
+                {!isLoadingModeration && filteredAdminReviews.map((review) => (
+                  <article key={review.id} className="admin-list-item moderation-review">
+                    {review.release_cover ? <img src={review.release_cover} alt="" /> : <div className="moderation-avatar">♪</div>}
+                    <div className="admin-list-copy">
+                      <strong>{review.release_title} · {review.artist_name}</strong>
+                      <small>{review.full_name || review.username} · nota {review.rating}/10</small>
+                      <p>{review.review_text || 'Resenha sem texto'}</p>
+                      {review.gif_url && <img className="moderation-review-gif" src={review.gif_url} alt="GIF anexado à resenha" />}
+                    </div>
+                    <button type="button" className="danger-btn compact-btn" onClick={() => handleAdminReviewDelete(review)}>Remover resenha</button>
+                  </article>
+                ))}
+                {!isLoadingModeration && !filteredAdminReviews.length && <p className="admin-empty-state">Nenhuma resenha corresponde à busca.</p>}
               </div>
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
