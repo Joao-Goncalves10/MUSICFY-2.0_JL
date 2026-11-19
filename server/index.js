@@ -266,6 +266,24 @@ const requireAdmin = (req, res, next) => {
 async function initializeDatabase() {
   await execDb(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
+  const featuredBannerColumn = await getDb(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'featured_releases' AND COLUMN_NAME = 'banner_url'
+  `);
+  if (!featuredBannerColumn) {
+    await execDb('ALTER TABLE featured_releases ADD COLUMN banner_url VARCHAR(512) NULL');
+  }
+
+  const featuredDescriptionColumn = await getDb(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'featured_releases' AND COLUMN_NAME = 'description'
+  `);
+  if (!featuredDescriptionColumn) {
+    await execDb('ALTER TABLE featured_releases ADD COLUMN description TEXT NULL');
+  }
+
   const rolesRow = await getDb('SELECT COUNT(*) AS count FROM roles');
   if (Number(rolesRow?.count || 0) === 0) {
     await runDb("INSERT INTO roles (name, description) VALUES ('ADMIN', 'Administrator access');");
@@ -1375,6 +1393,19 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
 });
 
 app.get('/api/home-feed', optionalAuth, async (req, res) => {
+  const featuredSlides = await allDb(`
+    SELECT fr.id, fr.release_id, fr.banner_url, fr.description, fr.sort_order,
+      r.title, r.cover_url, r.release_type, a.name AS artist_name
+    FROM featured_releases fr
+    JOIN releases r ON r.id = fr.release_id
+    JOIN artists a ON a.id = r.artist_id
+    WHERE r.status = 'ACTIVE'
+      AND TRIM(COALESCE(fr.banner_url, '')) <> ''
+      AND TRIM(COALESCE(fr.description, '')) <> ''
+    ORDER BY fr.sort_order ASC, fr.id ASC
+    LIMIT 8
+  `);
+
   const recentReleases = await allDb(`
     SELECT r.*, a.name AS artist_name
     FROM releases r
@@ -1423,7 +1454,7 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
     LIMIT 50
   `, feedParams);
 
-  return res.json({ recent_releases: recentReleases, reviews });
+  return res.json({ featured_slides: featuredSlides, recent_releases: recentReleases, reviews });
 });
 
 app.get('/api/genres', async (req, res) => {
@@ -1500,26 +1531,44 @@ app.post('/api/admin/reset', requireAuth, requireAdmin, resetCatalogHandler);
 app.post('/api/admin/catalog/reset', requireAuth, requireAdmin, resetCatalogHandler);
 
 app.post('/api/admin/featured', requireAuth, requireAdmin, async (req, res) => {
-  const { release_id, sort_order } = req.body;
+  const { release_id, sort_order, banner_url, description } = req.body;
+  const releaseId = Number(release_id);
+  const order = Number(sort_order);
+  const bannerUrl = typeof banner_url === 'string' ? banner_url.trim() : '';
+  const featuredDescription = typeof description === 'string' ? description.trim() : '';
 
-  if (!release_id) {
+  if (!Number.isSafeInteger(releaseId) || releaseId < 1) {
     return res.status(400).json({ error: 'Selecione um lançamento para destacar.' });
   }
+  if (!bannerUrl || !isValidImageUrl(bannerUrl)) {
+    return res.status(400).json({ error: 'Escolha ou carregue um banner válido para o destaque.' });
+  }
+  if (!featuredDescription || featuredDescription.length > 600) {
+    return res.status(400).json({ error: 'Escreva uma descrição de até 600 caracteres para o destaque.' });
+  }
+  if (!Number.isSafeInteger(order) || order < 1) {
+    return res.status(400).json({ error: 'A ordem do destaque deve ser um número inteiro positivo.' });
+  }
 
-  const release = await getDb('SELECT id FROM releases WHERE id = ?', [release_id]);
+  const release = await getDb('SELECT id FROM releases WHERE id = ?', [releaseId]);
   if (!release) {
     return res.status(404).json({ error: 'Lançamento não encontrado.' });
   }
 
-  const order = Number(sort_order || 1);
-  const existing = await getDb('SELECT id FROM featured_releases WHERE release_id = ?', [release_id]);
+  const existing = await getDb('SELECT id FROM featured_releases WHERE release_id = ?', [releaseId]);
 
   if (existing) {
-    await runDb('UPDATE featured_releases SET sort_order = ? WHERE id = ?', [order, existing.id]);
+    await runDb(
+      'UPDATE featured_releases SET sort_order = ?, banner_url = ?, description = ? WHERE id = ?',
+      [order, bannerUrl, featuredDescription, existing.id]
+    );
     return res.json({ message: 'Destaque atualizado.' });
   }
 
-  await runDb('INSERT INTO featured_releases (release_id, sort_order) VALUES (?, ?)', [release_id, order]);
+  await runDb(
+    'INSERT INTO featured_releases (release_id, sort_order, banner_url, description) VALUES (?, ?, ?, ?)',
+    [releaseId, order, bannerUrl, featuredDescription]
+  );
   return res.status(201).json({ message: 'Destaque criado.' });
 });
 

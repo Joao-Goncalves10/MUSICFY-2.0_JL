@@ -372,9 +372,83 @@ function Navbar({ theme, onToggleTheme }) {
   );
 }
 
+function FeaturedCarousel({ slides, user }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveIndex((current) => (slides.length ? current % slides.length : 0));
+  }, [slides.length]);
+
+  if (!slides.length) return null;
+
+  const normalizedIndex = activeIndex % slides.length;
+  const activeSlide = slides[normalizedIndex];
+  const moveSlide = (direction) => {
+    setActiveIndex((current) => (current + direction + slides.length) % slides.length);
+  };
+
+  return (
+    <section className="home-featured-carousel" aria-label="Álbuns em destaque" aria-roledescription="carrossel">
+      <article className="home-featured-slide" key={activeSlide.id}>
+        <img
+          className="home-featured-banner"
+          src={activeSlide.banner_url}
+          onError={(event) => handleImageError(event, activeSlide.cover_url || getReleaseFallbackImage(activeSlide))}
+          alt=""
+        />
+        <div className="home-featured-shade" />
+        <div className="home-featured-copy">
+          <p className="eyebrow">Em destaque · {activeSlide.artist_name}</p>
+          <h2>{activeSlide.title}</h2>
+          <p>{activeSlide.description}</p>
+          <Link
+            to={user ? `/releases/${activeSlide.release_id}?review=1` : '/auth'}
+            className="home-featured-cta"
+          >
+            Avalie já! <span aria-hidden="true">↗</span>
+          </Link>
+        </div>
+      </article>
+      {slides.length > 1 && (
+        <>
+          <button
+            type="button"
+            className="home-featured-arrow is-previous"
+            aria-label="Destaque anterior"
+            onClick={() => moveSlide(-1)}
+          >
+            <span aria-hidden="true">‹</span>
+          </button>
+          <button
+            type="button"
+            className="home-featured-arrow is-next"
+            aria-label="Próximo destaque"
+            onClick={() => moveSlide(1)}
+          >
+            <span aria-hidden="true">›</span>
+          </button>
+          <div className="home-featured-indicators" aria-label="Selecionar destaque">
+            {slides.map((slide, index) => (
+              <button
+                key={slide.id}
+                type="button"
+                className={index === normalizedIndex ? 'is-active' : ''}
+                aria-label={`Mostrar destaque ${index + 1}: ${slide.title}`}
+                aria-pressed={index === normalizedIndex}
+                onClick={() => setActiveIndex(index)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function HomePage() {
   const { user } = useAuth();
   const [reviews, setReviews] = useState([]);
+  const [featuredSlides, setFeaturedSlides] = useState([]);
   const [recentReleases, setRecentReleases] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -388,11 +462,13 @@ function HomePage() {
       .then((response) => {
         if (!active) return;
         setReviews(response.data.reviews || []);
+        setFeaturedSlides(response.data.featured_slides || []);
         setRecentReleases(response.data.recent_releases || []);
       })
       .catch((requestError) => {
         if (active) {
           setReviews([]);
+          setFeaturedSlides([]);
           setRecentReleases([]);
           setError(requestError.response?.data?.error || 'Não foi possível carregar seu feed.');
         }
@@ -415,6 +491,7 @@ function HomePage() {
   return (
     <div className="home-page">
       <section className="home-feed-column">
+        <FeaturedCarousel slides={featuredSlides} user={user} />
         <header className="home-feed-heading">
           <div>
             <p className="eyebrow">Música compartilhada</p>
@@ -954,6 +1031,7 @@ function ReleaseDetailPage() {
   const { releaseId } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [releaseInfo, setReleaseInfo] = useState(null);
   const [reviewText, setReviewText] = useState('');
   const [reviewGifUrl, setReviewGifUrl] = useState('');
@@ -995,6 +1073,14 @@ function ReleaseDetailPage() {
   useEffect(() => {
     load();
   }, [releaseId, user]);
+
+  useEffect(() => {
+    if (!releaseInfo || !user || searchParams.get('review') !== '1') return;
+    setIsReviewModalOpen(true);
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.delete('review');
+    setSearchParams(nextSearchParams, { replace: true });
+  }, [releaseInfo, user, searchParams, setSearchParams]);
 
   useEffect(() => {
     setOpenLyricsTrackId(null);
@@ -2067,7 +2153,8 @@ function AdminPage() {
     description: '',
     tracks: [{ title: '', duration: '3:00', explicit: false, youtube_url: '', lyrics: '', translation: '' }],
   });
-  const [featuredForm, setFeaturedForm] = useState({ release_id: '', sort_order: 1 });
+  const [featuredForm, setFeaturedForm] = useState({ release_id: '', sort_order: 1, banner_url: '', description: '' });
+  const [isFeaturedBannerUploading, setIsFeaturedBannerUploading] = useState(false);
 
   const reportAdminError = (error, fallback) => {
     const message = error.response?.data?.error;
@@ -2210,13 +2297,37 @@ function AdminPage() {
   const submitFeatured = async (e) => {
     e.preventDefault();
     setAdminError('');
+    const releaseId = Number(featuredForm.release_id);
+    const sortOrder = Number(featuredForm.sort_order);
+    const bannerUrl = featuredForm.banner_url.trim();
+    const description = featuredForm.description.trim();
+
+    if (!Number.isSafeInteger(releaseId) || releaseId < 1) {
+      setAdminError('Selecione um lançamento para destacar.');
+      return;
+    }
+    if (!bannerUrl) {
+      setAdminError('Escolha ou carregue um banner para o destaque.');
+      return;
+    }
+    if (!description || description.length > 600) {
+      setAdminError('Escreva uma descrição de até 600 caracteres para o destaque.');
+      return;
+    }
+    if (!Number.isSafeInteger(sortOrder) || sortOrder < 1) {
+      setAdminError('A ordem do destaque deve ser um número inteiro positivo.');
+      return;
+    }
+
     try {
       await api.post('/admin/featured', {
-        release_id: Number(featuredForm.release_id),
-        sort_order: Number(featuredForm.sort_order),
+        release_id: releaseId,
+        sort_order: sortOrder,
+        banner_url: bannerUrl,
+        description,
       });
-      alert('Destaque atualizado no carrossel inicial.');
-      setFeaturedForm({ release_id: '', sort_order: 1 });
+      alert('Destaque salvo no carrossel da página inicial.');
+      setFeaturedForm({ release_id: '', sort_order: 1, banner_url: '', description: '' });
       refreshCatalogLists();
     } catch (error) {
       reportAdminError(error, 'Não foi possível salvar o destaque. Confira o lançamento selecionado.');
@@ -2487,17 +2598,51 @@ function AdminPage() {
 
         <form className="admin-form glass-panel" onSubmit={submitFeatured}>
           <div className="admin-form-header">
-            <h3>Criar destaque</h3>
-            <span>Carrossel da página inicial</span>
+            <div>
+              <h3>Criar destaque</h3>
+              <span>Adicione um álbum ao carrossel da página inicial</span>
+            </div>
           </div>
-          <select value={featuredForm.release_id} onChange={(e) => setFeaturedForm({ ...featuredForm, release_id: e.target.value })}>
+          <select
+            required
+            aria-label="Lançamento do destaque"
+            value={featuredForm.release_id}
+            onChange={(e) => setFeaturedForm({ ...featuredForm, release_id: e.target.value })}
+          >
             <option value="">Selecione um lançamento</option>
             {releaseList.map((release) => (
               <option key={release.id} value={release.id}>{release.title} • {release.artist_name}</option>
             ))}
           </select>
-          <input type="number" min="1" value={featuredForm.sort_order} onChange={(e) => setFeaturedForm({ ...featuredForm, sort_order: e.target.value })} placeholder="Ordem do destaque" />
-          <button type="submit" className="primary-btn">Salvar destaque</button>
+          <ImageUploadField
+            label="Banner do destaque"
+            value={featuredForm.banner_url}
+            onChange={(value) => setFeaturedForm({ ...featuredForm, banner_url: value })}
+            placeholder="https://..."
+            hint="Escolha uma imagem horizontal ou informe uma URL."
+            onImageUpload={uploadImage}
+            onUploadStateChange={setIsFeaturedBannerUploading}
+          />
+          <textarea
+            required
+            maxLength={600}
+            rows="4"
+            value={featuredForm.description}
+            onChange={(e) => setFeaturedForm({ ...featuredForm, description: e.target.value })}
+            placeholder="Escreva uma descrição convidativa para este álbum"
+          />
+          <input
+            type="number"
+            min="1"
+            step="1"
+            required
+            value={featuredForm.sort_order}
+            onChange={(e) => setFeaturedForm({ ...featuredForm, sort_order: e.target.value })}
+            placeholder="Ordem no carrossel"
+          />
+          <button type="submit" className="primary-btn" disabled={isFeaturedBannerUploading}>
+            {isFeaturedBannerUploading ? 'Enviando banner…' : 'Salvar destaque'}
+          </button>
         </form>
       </div>
 
