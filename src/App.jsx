@@ -117,6 +117,7 @@ export default function App() {
               <Route path="/" element={<HomePage />} />
               <Route path="/explore" element={<ExplorePage />} />
               <Route path="/artists" element={<ArtistsPage />} />
+              <Route path="/community" element={<ProtectedRoute><CommunityPage /></ProtectedRoute>} />
               <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
               <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
               <Route path="/profile/:userId" element={<ProfilePage />} />
@@ -137,6 +138,7 @@ function NavGlyph({ name }) {
     artists: 'M9 18V5l12-2v13 M9 18a3 3 0 1 1-3-3c1.7 0 3 1.3 3 3Zm12-2a3 3 0 1 1-3-3c1.7 0 3 1.3 3 3Z',
     settings: 'M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M2 14h4m4-6h4m4 8h4',
     profile: 'M20 21a8 8 0 0 0-16 0m8-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z',
+    community: 'M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2m6-10a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6-7.5a4 4 0 0 1 0 7.5m2 3a4 4 0 0 1 2 3.5v1',
   };
 
   return (
@@ -152,6 +154,7 @@ function Sidebar() {
     { to: '/', label: 'Início', icon: 'home', end: true },
     { to: '/explore', label: 'Explorar', icon: 'explore' },
     { to: '/artists', label: 'Artistas', icon: 'artists' },
+    ...(user ? [{ to: '/community', label: 'Comunidade', icon: 'community' }] : []),
     ...(user?.role === 'ADMIN' ? [{ to: '/admin', label: 'Gerenciar', icon: 'settings' }] : []),
     ...(user ? [{ to: `/profile/${user.id}`, label: 'Perfil', icon: 'profile' }] : []),
   ];
@@ -263,6 +266,7 @@ function Navbar({ theme, onToggleTheme }) {
 }
 
 function HomePage() {
+  const { user } = useAuth();
   const [featured, setFeatured] = useState([]);
   const [releases, setReleases] = useState([]);
   const [artists, setArtists] = useState([]);
@@ -287,7 +291,7 @@ function HomePage() {
     };
 
     load();
-  }, []);
+  }, [user]);
 
   return (
     <div className="content-stack">
@@ -365,16 +369,17 @@ function HomePage() {
           {reviews.map((review) => (
             <div key={review.id} className="review-feed-item glass-panel">
               <div className="review-head">
-                <div className="mini-user">
+                <Link to={`/profile/${review.user_id}`} className="mini-user review-author-link">
                   <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={review.username} />
                   <div>
                     <strong>{review.username}</strong>
-                    <span>{review.release_title}</span>
+                    <span>{review.artist_name} · {review.release_title}</span>
                   </div>
-                </div>
+                </Link>
                 <RatingBadge value={review.rating} />
               </div>
               <p>{review.review_text}</p>
+              <ReviewLikeButton review={review} user={user} />
             </div>
           ))}
         </div>
@@ -439,6 +444,216 @@ function ArtistsPage() {
           <ArtistCard key={artist.id} artist={artist} />
         ))}
       </div>
+    </div>
+  );
+}
+
+function FollowButton({ userId, initialFollowing = false, onChange }) {
+  const { user } = useAuth();
+  const [following, setFollowing] = useState(Boolean(initialFollowing));
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setFollowing(Boolean(initialFollowing));
+  }, [userId, initialFollowing]);
+
+  if (Number(user?.id) === Number(userId)) return null;
+  if (!user) {
+    return <Link to="/auth" className="follow-btn">Entrar para seguir</Link>;
+  }
+
+  const toggleFollow = async () => {
+    setIsSaving(true);
+    setError('');
+    try {
+      const response = following
+        ? await api.delete(`/users/${userId}/follow`)
+        : await api.post(`/users/${userId}/follow`);
+      setFollowing(Boolean(response.data.following));
+      onChange?.(Boolean(response.data.following));
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Não foi possível atualizar o seguimento.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="follow-control">
+      <button
+        type="button"
+        className={`follow-btn${following ? ' is-following' : ''}`}
+        aria-pressed={following}
+        disabled={isSaving}
+        onClick={toggleFollow}
+      >
+        {isSaving ? 'Salvando...' : following ? 'Seguindo' : 'Seguir'}
+      </button>
+      {error && <span className="follow-error" role="alert">{error}</span>}
+    </div>
+  );
+}
+
+function ReviewLikeButton({ review, user, onChange }) {
+  const [liked, setLiked] = useState(Boolean(review.liked_by_user));
+  const [likeCount, setLikeCount] = useState(Number(review.like_count || 0));
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setLiked(Boolean(review.liked_by_user));
+    setLikeCount(Number(review.like_count || 0));
+  }, [review.id, review.liked_by_user, review.like_count]);
+
+  if (!user) {
+    return (
+      <Link to="/auth" className="review-like-btn">
+        ♡ Curtir · {likeCount}
+      </Link>
+    );
+  }
+
+  const toggleLike = async () => {
+    setIsSaving(true);
+    setError('');
+    try {
+      const response = await api.post(`/reviews/${review.id}/like`);
+      const nextLiked = Boolean(response.data.liked);
+      const nextCount = Math.max(0, likeCount + (nextLiked ? 1 : -1));
+      setLiked(nextLiked);
+      setLikeCount(nextCount);
+      onChange?.(nextLiked, nextCount);
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Não foi possível curtir esta resenha.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="review-like-control">
+      <button
+        type="button"
+        className={`review-like-btn${liked ? ' is-liked' : ''}`}
+        aria-pressed={liked}
+        disabled={isSaving}
+        onClick={toggleLike}
+      >
+        {liked ? '♥ Curtido' : '♡ Curtir'} · {likeCount}
+      </button>
+      {error && <span className="follow-error" role="alert">{error}</span>}
+    </div>
+  );
+}
+
+function CommunityPage() {
+  const [query, setQuery] = useState('');
+  const [users, setUsers] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const search = query.trim();
+    if (search.length === 1) {
+      setUsers([]);
+      setError('Digite pelo menos 2 caracteres para buscar pessoas.');
+      setIsLoading(false);
+      return undefined;
+    }
+
+    setError('');
+    setIsLoading(true);
+    const timer = setTimeout(() => {
+      api.get('/users', { params: search ? { q: search } : {} })
+        .then((response) => {
+          if (active) setUsers(response.data || []);
+        })
+        .catch((requestError) => {
+          if (active) {
+            setUsers([]);
+            setError(requestError.response?.data?.error || 'Não foi possível carregar as pessoas.');
+          }
+        })
+        .finally(() => {
+          if (active) setIsLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [query]);
+
+  return (
+    <div className="content-stack community-page">
+      <header className="community-hero glass-panel">
+        <p className="eyebrow">Música fica melhor junto</p>
+        <h1>Comunidade</h1>
+        <p>Encontre pessoas, acompanhe suas descobertas e compartilhe o que você ouve.</p>
+        <label className="community-search">
+          <span className="sr-only">Buscar pessoas por nome ou usuário</span>
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar por nome ou @usuário"
+            maxLength={100}
+          />
+        </label>
+      </header>
+
+      <section className="community-results">
+        <div className="profile-section-heading">
+          <div>
+            <p className="eyebrow">{query.trim() ? 'Resultados da busca' : 'Novas conexões'}</p>
+            <h2>{query.trim() ? 'Pessoas' : 'Descubra pessoas'}</h2>
+          </div>
+          {!isLoading && <span className="community-result-count">{users.length} perfis</span>}
+        </div>
+        {error && <p className="error-text" role="alert">{error}</p>}
+        {isLoading ? (
+          <div className="loading-panel">Carregando pessoas…</div>
+        ) : users.length ? (
+          <div className="community-user-grid">
+            {users.map((person) => (
+              <article key={person.id} className="community-user-card glass-panel">
+                <Link to={`/profile/${person.id}`} className="community-user-link">
+                  <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                  <span className="community-user-copy">
+                    <strong>{person.full_name || person.username}</strong>
+                    <small>@{person.username}</small>
+                  </span>
+                </Link>
+                <p>{person.bio || 'Ainda não adicionou uma biografia.'}</p>
+                <div className="community-user-footer">
+                  <span>{Number(person.follower_count || 0)} seguidores</span>
+                  <FollowButton
+                    userId={person.id}
+                    initialFollowing={Boolean(person.followed_by_user)}
+                    onChange={(isFollowing) => setUsers((current) => current.map((item) => (
+                      String(item.id) === String(person.id)
+                        ? {
+                          ...item,
+                          follower_count: Math.max(0, Number(item.follower_count || 0) + (isFollowing ? 1 : -1)),
+                          followed_by_user: isFollowing,
+                        }
+                        : item
+                    )))}
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : !error ? (
+          <div className="profile-empty-state glass-panel">
+            <span aria-hidden="true">⌕</span>
+            <h3>Ninguém encontrado por enquanto</h3>
+            <p>Tente buscar por outro nome ou usuário.</p>
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }
@@ -658,9 +873,7 @@ function ReleaseDetailPage() {
     }
   };
 
-  const toggleLikeReview = async (reviewId) => {
-    if (!user) return;
-    const res = await api.post(`/reviews/${reviewId}/like`);
+  const handleReviewLikeChange = (reviewId, liked, likeCount) => {
     setReleaseInfo((prev) => {
       if (!prev) return prev;
       return {
@@ -669,8 +882,8 @@ function ReleaseDetailPage() {
           if (review.id !== reviewId) return review;
           return {
             ...review,
-            like_count: Number(review.like_count || 0) + (res.data.liked ? 1 : -1),
-            liked_by_user: res.data.liked,
+            like_count: likeCount,
+            liked_by_user: liked,
           };
         }),
       };
@@ -1008,20 +1221,22 @@ function ReleaseDetailPage() {
           {reviews.map((review) => (
             <div key={review.id} className="review-feed-item glass-panel">
               <div className="review-head">
-                <div className="mini-user">
+                <Link to={`/profile/${review.user_id}`} className="mini-user review-author-link">
                   <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={review.username} />
                   <div>
                     <strong>{review.username}</strong>
                     <span>{review.created_at}</span>
                   </div>
-                </div>
+                </Link>
                 <RatingBadge value={review.rating} />
               </div>
               <p>{review.review_text}</p>
               <div className="review-actions">
-                <button type="button" className="ghost-btn" onClick={() => toggleLikeReview(review.id)}>
-                  {review.liked_by_user ? '♥ Curtido' : '♡ Curtir'} · {Number(review.like_count || 0)}
-                </button>
+                <ReviewLikeButton
+                  review={review}
+                  user={user}
+                  onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
+                />
               </div>
             </div>
           ))}
@@ -1042,6 +1257,10 @@ function ProfilePage() {
   const [playlistName, setPlaylistName] = useState('');
   const [playlistError, setPlaylistError] = useState('');
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
+  const [socialListMode, setSocialListMode] = useState('');
+  const [socialUsers, setSocialUsers] = useState([]);
+  const [socialListError, setSocialListError] = useState('');
+  const [isLoadingSocialUsers, setIsLoadingSocialUsers] = useState(false);
 
   const loadProfile = async () => {
     const target = userId || user?.id;
@@ -1087,6 +1306,37 @@ function ProfilePage() {
     }
   };
 
+  const toggleSocialList = async (mode) => {
+    if (socialListMode === mode) {
+      setSocialListMode('');
+      return;
+    }
+
+    setSocialListMode(mode);
+    setSocialUsers([]);
+    setSocialListError('');
+    setIsLoadingSocialUsers(true);
+    try {
+      const response = await api.get(`/users/${userId || user?.id}/${mode}`);
+      setSocialUsers(response.data || []);
+    } catch (error) {
+      setSocialListError(error.response?.data?.error || 'Não foi possível carregar esta lista.');
+    } finally {
+      setIsLoadingSocialUsers(false);
+    }
+  };
+
+  const handleProfileFollowChange = (isFollowing) => {
+    setProfile((current) => current ? ({
+      ...current,
+      social: {
+        ...current.social,
+        followers: Math.max(0, Number(current.social?.followers || 0) + (isFollowing ? 1 : -1)),
+        is_following: isFollowing,
+      },
+    }) : current);
+  };
+
   if (!profile) return <div className="loading-panel">Carregando perfil…</div>;
 
   const isOwner = Number(user?.id) === Number(profile.user.id);
@@ -1103,6 +1353,58 @@ function ProfilePage() {
           </div>
         </div>
       </div>
+
+      <div className="profile-social-strip">
+        <div className="profile-social-counts">
+          <button type="button" onClick={() => void toggleSocialList('followers')}>
+            <strong>{Number(profile.social?.followers || 0)}</strong><span>Seguidores</span>
+          </button>
+          <button type="button" onClick={() => void toggleSocialList('following')}>
+            <strong>{Number(profile.social?.following || 0)}</strong><span>Seguindo</span>
+          </button>
+        </div>
+        {!isOwner && (
+          <FollowButton
+            userId={profile.user.id}
+            initialFollowing={Boolean(profile.social?.is_following)}
+            onChange={handleProfileFollowChange}
+          />
+        )}
+      </div>
+
+      {socialListMode && (
+        <section className="profile-social-list glass-panel">
+          <div className="profile-social-list-heading">
+            <div>
+              <p className="eyebrow">Conexões</p>
+              <h2>{socialListMode === 'followers' ? 'Seguidores' : 'Seguindo'}</h2>
+            </div>
+            <button type="button" className="secondary-btn compact-btn" onClick={() => setSocialListMode('')}>Fechar</button>
+          </div>
+          {isLoadingSocialUsers ? (
+            <p className="profile-social-list-message">Carregando pessoas…</p>
+          ) : socialListError ? (
+            <p className="error-text" role="alert">{socialListError}</p>
+          ) : socialUsers.length ? (
+            <div className="profile-social-user-list">
+              {socialUsers.map((person) => (
+                <article key={person.id} className="profile-social-user">
+                  <Link to={`/profile/${person.id}`} className="community-user-link">
+                    <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                    <span className="community-user-copy">
+                      <strong>{person.full_name || person.username}</strong>
+                      <small>@{person.username}</small>
+                    </span>
+                  </Link>
+                  <FollowButton userId={person.id} initialFollowing={Boolean(person.followed_by_user)} />
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="profile-social-list-message">Ainda não há pessoas nesta lista.</p>
+          )}
+        </section>
+      )}
 
       <div className="profile-toolbar">
         <div className="profile-tabs" role="tablist" aria-label="Seções do perfil">
@@ -1213,6 +1515,7 @@ function ProfilePage() {
                     </div>
                     <p>{review.review_text || 'Sem comentário escrito.'}</p>
                     <small>{review.created_at}</small>
+                    <ReviewLikeButton review={review} user={user} />
                   </div>
                 </article>
               ))}

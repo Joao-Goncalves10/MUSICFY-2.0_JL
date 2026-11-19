@@ -164,6 +164,19 @@ const normalizeUser = (user) => {
   };
 };
 
+const normalizePublicUser = (user) => {
+  if (!user) return null;
+  return {
+    id: user.id,
+    username: user.username,
+    full_name: user.full_name,
+    avatar_url: user.avatar_url,
+    banner_url: user.banner_url,
+    bio: user.bio,
+    created_at: user.created_at,
+  };
+};
+
 const isFutureReleaseDate = (dateString) => {
   if (!dateString) return false;
   const releaseDate = new Date(dateString);
@@ -189,6 +202,24 @@ const requireAuth = (req, res, next) => {
   } catch (error) {
     return res.status(401).json({ error: 'Invalid or expired token.' });
   }
+};
+
+const optionalAuth = (req, res, next) => {
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.substring(7) : null;
+  if (!token) return next();
+
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+  } catch (error) {
+    req.user = null;
+  }
+  return next();
+};
+
+const parsePositiveId = (value) => {
+  const id = Number(value);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 };
 
 const requireAdmin = (req, res, next) => {
@@ -1088,18 +1119,98 @@ app.post('/api/notifications/:id/read', requireAuth, async (req, res) => {
   return res.json({ message: 'Notification marked as read.' });
 });
 
-app.get('/api/profile/:userId', async (req, res) => {
-  const user = await getDb('SELECT * FROM users WHERE id = ?', [req.params.userId]);
+app.get('/api/users', requireAuth, async (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (query.length > 100) return res.status(400).json({ error: 'A busca deve ter no máximo 100 caracteres.' });
+  if (query.length === 1) return res.status(400).json({ error: 'Digite pelo menos 2 caracteres para buscar pessoas.' });
+
+  const pattern = `%${query}%`;
+  const users = await allDb(`
+    SELECT u.id, u.username, u.full_name, u.avatar_url, u.bio,
+      (SELECT COUNT(*) FROM user_follows f WHERE f.followed_id = u.id) AS follower_count,
+      EXISTS (
+        SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id
+      ) AS followed_by_user
+    FROM users u
+    WHERE u.id <> ?
+      AND (? = '' OR u.username LIKE ? OR u.full_name LIKE ?)
+    ORDER BY u.created_at DESC, u.id DESC
+    LIMIT 30
+  `, [req.user.id, req.user.id, query, pattern, pattern]);
+
+  return res.json(users);
+});
+
+app.post('/api/users/:userId/follow', requireAuth, async (req, res) => {
+  const userId = parsePositiveId(req.params.userId);
+  if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
+  if (userId === Number(req.user.id)) return res.status(400).json({ error: 'You cannot follow your own profile.' });
+
+  const targetUser = await getDb('SELECT id FROM users WHERE id = ?', [userId]);
+  if (!targetUser) return res.status(404).json({ error: 'User not found.' });
+
+  await runDb('INSERT IGNORE INTO user_follows (follower_id, followed_id) VALUES (?, ?)', [req.user.id, userId]);
+  return res.json({ following: true });
+});
+
+app.delete('/api/users/:userId/follow', requireAuth, async (req, res) => {
+  const userId = parsePositiveId(req.params.userId);
+  if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
+  if (userId === Number(req.user.id)) return res.status(400).json({ error: 'You cannot unfollow your own profile.' });
+
+  const targetUser = await getDb('SELECT id FROM users WHERE id = ?', [userId]);
+  if (!targetUser) return res.status(404).json({ error: 'User not found.' });
+  await runDb('DELETE FROM user_follows WHERE follower_id = ? AND followed_id = ?', [req.user.id, userId]);
+  return res.json({ following: false });
+});
+
+const getUserRelationshipList = async (req, res, relationship) => {
+  const userId = parsePositiveId(req.params.userId);
+  if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
+  const profileUser = await getDb('SELECT id FROM users WHERE id = ?', [userId]);
+  if (!profileUser) return res.status(404).json({ error: 'User not found.' });
+
+  const followerColumn = relationship === 'followers' ? 'uf.followed_id' : 'uf.follower_id';
+  const selectedColumn = relationship === 'followers' ? 'uf.follower_id' : 'uf.followed_id';
+  const users = await allDb(`
+    SELECT u.id, u.username, u.full_name, u.avatar_url, u.bio,
+      (SELECT COUNT(*) FROM user_follows f WHERE f.followed_id = u.id) AS follower_count,
+      EXISTS (
+        SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id
+      ) AS followed_by_user
+    FROM user_follows uf
+    JOIN users u ON u.id = ${selectedColumn}
+    WHERE ${followerColumn} = ?
+    ORDER BY uf.created_at DESC
+    LIMIT 100
+  `, [req.user?.id || 0, userId]);
+  return res.json(users);
+};
+
+app.get('/api/users/:userId/followers', optionalAuth, (req, res) => getUserRelationshipList(req, res, 'followers'));
+app.get('/api/users/:userId/following', optionalAuth, (req, res) => getUserRelationshipList(req, res, 'following'));
+
+app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
+  const userId = parsePositiveId(req.params.userId);
+  if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
+  const user = await getDb(
+    'SELECT id, username, full_name, avatar_url, banner_url, bio, created_at FROM users WHERE id = ?',
+    [userId]
+  );
   if (!user) return res.status(404).json({ error: 'User not found.' });
 
   const reviews = await allDb(`
-    SELECT rv.*, r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name
+    SELECT rv.*, r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
+      (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
+      EXISTS (
+        SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
+      ) AS liked_by_user
     FROM reviews rv
     JOIN releases r ON r.id = rv.release_id
     JOIN artists a ON a.id = r.artist_id
     WHERE rv.user_id = ?
     ORDER BY rv.created_at DESC
-  `, [req.params.userId]);
+  `, [req.user?.id || 0, userId]);
 
   const playlists = await allDb(`
     SELECT p.*, (
@@ -1110,7 +1221,7 @@ app.get('/api/profile/:userId', async (req, res) => {
     FROM playlists p
     WHERE p.user_id = ?
     ORDER BY p.created_at DESC
-  `, [req.params.userId]);
+  `, [userId]);
   const favorites = await allDb(`
     SELECT f.*, t.title AS track_title, r.id AS release_id, r.title AS release_title,
       r.cover_url AS release_cover, a.name AS artist_name
@@ -1120,9 +1231,17 @@ app.get('/api/profile/:userId', async (req, res) => {
     JOIN artists a ON a.id = r.artist_id
     WHERE f.user_id = ?
     ORDER BY f.created_at DESC
-  `, [req.params.userId]);
+  `, [userId]);
+  const social = await getDb(`
+    SELECT
+      (SELECT COUNT(*) FROM user_follows WHERE followed_id = ?) AS followers,
+      (SELECT COUNT(*) FROM user_follows WHERE follower_id = ?) AS following,
+      EXISTS (
+        SELECT 1 FROM user_follows WHERE follower_id = ? AND followed_id = ?
+      ) AS is_following
+  `, [userId, userId, req.user?.id || 0, userId]);
 
-  return res.json({ user: normalizeUser(user), reviews, playlists, favorites });
+  return res.json({ user: normalizePublicUser(user), reviews, playlists, favorites, social });
 });
 
 app.put('/api/users/me', requireAuth, async (req, res) => {
@@ -1139,7 +1258,7 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
   return res.json({ user: normalizeUser(user) });
 });
 
-app.get('/api/explore', async (req, res) => {
+app.get('/api/explore', optionalAuth, async (req, res) => {
   const featured = await allDb(`
     SELECT fr.sort_order, r.*, a.name as artist_name
     FROM featured_releases fr
@@ -1165,14 +1284,19 @@ app.get('/api/explore', async (req, res) => {
   `);
 
   const reviews = await allDb(`
-    SELECT rv.*, u.username, u.avatar_url, r.title AS release_title, a.name AS artist_name, r.cover_url AS cover_url 
+    SELECT rv.*, u.username, u.avatar_url, r.title AS release_title, a.name AS artist_name,
+      r.cover_url AS cover_url,
+      (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
+      EXISTS (
+        SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
+      ) AS liked_by_user
     FROM reviews rv
     JOIN users u ON u.id = rv.user_id
     JOIN releases r ON r.id = rv.release_id
     JOIN artists a ON a.id = r.artist_id
     ORDER BY rv.created_at DESC
     LIMIT 6
-  `);
+  `, [req.user?.id || 0]);
 
   return res.json({ featured, recent, artists, reviews });
 });

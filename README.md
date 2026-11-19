@@ -19,10 +19,11 @@ This combination keeps the project lightweight while still providing a real pers
 - Artist and release catalog
 - Tracklists and media links
 - Review publishing and rating system
-- Like system for reviews
+- Review likes with live counts on release pages, profiles, and the community feed
 - Artist detail pages and release detail pages
 - Social feed with recent community reviews
-- User profile page
+- Public user profiles with profile discovery, follow/unfollow, and follower/following lists
+- User profile page with reviews, playlists, and favorite tracks
 - Playlist and favorites support
 - Pre-save flow and notification model
 - Admin dashboard for creating and editing artists and releases, with edit shortcuts on artist and release detail pages
@@ -112,6 +113,8 @@ The command imports artists, genres, artist-genre relationships, releases, and t
 
 User passwords are stored as bcrypt hashes. Reviews and their likes use `reviews` and `review_likes`; track favorites use `favorites`. Playlists, playlist tracks, pre-saves, notifications, and featured releases are persisted in their corresponding tables. A new database is seeded with roles, the configured admin account, a demo user, artists, releases, and tracks.
 
+User follow relationships are stored in `user_follows`. The authenticated community page searches public profiles; following and review likes require a signed-in user. Public profile pages include follower/following lists and social counts.
+
 Additional content endpoints (writes require an admin token):
 
 - `GET /api/content/:entityType/:id/links` — list links for an `artist`, `release`, or `track`
@@ -120,6 +123,14 @@ Additional content endpoints (writes require an admin token):
 - `GET /api/tracks/:id/texts` — list a track's lyrics and translations
 - `PUT /api/tracks/:id/texts` — add/update text (`content_type`, `language_code`, `content`, optional `source_language_code` and `source_url`)
 - `DELETE /api/tracks/:id/texts/:contentType/:languageCode` — remove a language entry
+
+Social endpoints:
+
+- `GET /api/users?q=...` — search public profiles (authentication required)
+- `POST /api/users/:userId/follow` and `DELETE /api/users/:userId/follow` — follow or unfollow a user (authentication required)
+- `GET /api/users/:userId/followers` and `GET /api/users/:userId/following` — list profile connections
+- `GET /api/profile/:userId` — read a public profile, including reviews, playlists, favorites, and follow state
+- `POST /api/reviews/:id/like` — like or unlike a review (authentication required)
 
 ## Build for production
 
