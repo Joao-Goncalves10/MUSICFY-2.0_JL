@@ -174,7 +174,8 @@ button:focus-visible {
 }
 
 .search-wrap input,
-.search-input {
+.search-input,
+select {
   width: 100%;
   padding: 0.9rem 1rem;
   border-radius: 999px;
@@ -653,6 +654,29 @@ button:focus-visible {
   gap: 32px;
 }
 
+.listing-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.listing-filters > * {
+  min-width: 0;
+}
+
+.explore-catalog-filters {
+  grid-template-columns: minmax(0, 1.7fr) repeat(2, minmax(160px, 0.8fr));
+}
+
+.home-feed-filters {
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.8fr);
+}
+
+.home-recent-type-filter {
+  margin: -2px 0 0;
+}
+
 .hero {
   padding: 2.5rem;
   background:
@@ -1045,9 +1069,21 @@ button:focus-visible {
   box-shadow: 0 5px 16px rgba(109, 207, 159, 0.17);
 }
 
-.release-genre-custom {
+.release-genre-create {
   display: grid;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.release-genre-create input {
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .release-genre-create {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .admin-listing-panel {
@@ -2666,8 +2702,7 @@ button:focus-visible {
 }
 
 input,
-textarea,
-select {
+textarea {
   width: 100%;
   padding: 0.8rem 0.9rem;
 }
@@ -3599,11 +3634,6 @@ textarea {
 .tracklist-playlist-control select {
   max-width: min(230px, 38vw);
   min-height: 38px;
-  padding: 7px 30px 7px 10px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: var(--control-background);
-  color: var(--text);
 }
 
 .tracklist-create-playlist {
@@ -4963,7 +4993,8 @@ textarea {
 }
 
 :root[data-theme="light"] .search-wrap input,
-:root[data-theme="light"] .search-input {
+:root[data-theme="light"] .search-input,
+:root[data-theme="light"] select {
   color: var(--text);
   background: rgba(30, 48, 69, 0.045);
   border-color: rgba(30, 48, 69, 0.1);
@@ -4971,8 +5002,7 @@ textarea {
 }
 
 :root[data-theme="light"] input:not([type="checkbox"]):not([type="range"]):not([type="file"]),
-:root[data-theme="light"] textarea,
-:root[data-theme="light"] select {
+:root[data-theme="light"] textarea {
   color: var(--text);
   background: rgba(255,255,255,0.82);
   border-color: rgba(38, 58, 79, 0.14);
@@ -7191,9 +7221,29 @@ textarea {
   color: var(--text);
 }
 
+.account-approval-notice {
+  display: grid;
+  gap: 0.3rem;
+  margin-bottom: 1.1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(232, 171, 75, 0.36);
+  border-radius: 16px;
+  background: rgba(232, 171, 75, 0.1);
+  color: var(--text);
+}
+
+.account-approval-notice strong {
+  color: var(--primary-strong);
+}
+
+.account-approval-notice span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .admin-section-nav {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
   gap: 0.8rem;
 }
 
@@ -7308,6 +7358,32 @@ textarea {
 
 .admin-moderation-grid .admin-listing-panel {
   min-width: 0;
+}
+
+.approval-user {
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.approval-user-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  object-fit: cover;
+}
+
+.approval-user .admin-list-copy p {
+  margin: 0.35rem 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.approval-user .admin-list-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .moderation-user {
@@ -7574,6 +7650,11 @@ textarea {
 }
 
 @media (max-width: 600px) {
+  .explore-catalog-filters,
+  .home-feed-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .explore-hero {
     min-height: 0;
     padding: 30px 24px;
