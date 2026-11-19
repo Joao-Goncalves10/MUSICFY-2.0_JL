@@ -374,6 +374,7 @@ function Navbar({ theme, onToggleTheme }) {
 
 function FeaturedCarousel({ slides, user }) {
   const [activeIndex, setActiveIndex] = useState(0);
+  const pointerStartX = useRef(null);
 
   useEffect(() => {
     setActiveIndex((current) => (slides.length ? current % slides.length : 0));
@@ -386,13 +387,31 @@ function FeaturedCarousel({ slides, user }) {
   const moveSlide = (direction) => {
     setActiveIndex((current) => (current + direction + slides.length) % slides.length);
   };
+  const handlePointerDown = (event) => {
+    if (event.target.closest?.('button, a')) return;
+    pointerStartX.current = event.clientX;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const handlePointerUp = (event) => {
+    if (pointerStartX.current == null) return;
+    const swipeDistance = event.clientX - pointerStartX.current;
+    pointerStartX.current = null;
+    if (Math.abs(swipeDistance) >= 45) moveSlide(swipeDistance < 0 ? 1 : -1);
+  };
 
   return (
-    <section className="home-featured-carousel" aria-label="Álbuns em destaque" aria-roledescription="carrossel">
+    <section
+      className="home-featured-carousel"
+      aria-label="Álbuns em destaque"
+      aria-roledescription="carrossel"
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={() => { pointerStartX.current = null; }}
+    >
       <article className="home-featured-slide" key={activeSlide.id}>
         <img
           className="home-featured-banner"
-          src={activeSlide.banner_url}
+          src={activeSlide.banner_url || activeSlide.cover_url || getReleaseFallbackImage(activeSlide)}
           onError={(event) => handleImageError(event, activeSlide.cover_url || getReleaseFallbackImage(activeSlide))}
           alt=""
         />
@@ -417,7 +436,9 @@ function FeaturedCarousel({ slides, user }) {
             aria-label="Destaque anterior"
             onClick={() => moveSlide(-1)}
           >
-            <span aria-hidden="true">‹</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15 18 9 12 15 6" />
+            </svg>
           </button>
           <button
             type="button"
@@ -425,7 +446,9 @@ function FeaturedCarousel({ slides, user }) {
             aria-label="Próximo destaque"
             onClick={() => moveSlide(1)}
           >
-            <span aria-hidden="true">›</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M15 18 9 12 15 6" />
+            </svg>
           </button>
           <div className="home-featured-indicators" aria-label="Selecionar destaque">
             {slides.map((slide, index) => (
@@ -2454,10 +2477,6 @@ function AdminPage() {
     <div className="content-stack">
       <div className="section-header"><h2>Painel administrativo</h2></div>
       {adminError && <p className="error-text" role="alert">{adminError}</p>}
-
-      <div className="admin-actions">
-        <button type="button" className="secondary-btn" onClick={resetCatalog}>Zerar catálogo</button>
-      </div>
 
       <div className="stats-grid">
         <div className="stat-card glass-panel"><span>Artistas</span><strong>{stats.artists?.count || 0}</strong></div>
