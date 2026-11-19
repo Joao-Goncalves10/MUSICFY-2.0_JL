@@ -35,6 +35,85 @@ const handleImageError = (event, fallbackImage) => {
   image.src = fallbackImage;
 };
 
+const extractImageAccent = (imageUrl) => new Promise((resolve, reject) => {
+  const image = new Image();
+  image.crossOrigin = 'anonymous';
+  image.onload = () => {
+    try {
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) throw new Error('Canvas 2D context is unavailable.');
+
+      canvas.width = 32;
+      canvas.height = 32;
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      const buckets = new Map();
+
+      for (let index = 0; index < pixels.length; index += 4) {
+        const alpha = pixels[index + 3] / 255;
+        if (alpha < 0.5) continue;
+
+        const red = pixels[index];
+        const green = pixels[index + 1];
+        const blue = pixels[index + 2];
+        const maximum = Math.max(red, green, blue);
+        const minimum = Math.min(red, green, blue);
+        const brightness = (red * 0.2126 + green * 0.7152 + blue * 0.0722) / 255;
+        const saturation = maximum ? (maximum - minimum) / maximum : 0;
+        const weight = alpha * (0.3 + saturation) * (brightness < 0.08 || brightness > 0.94 ? 0.2 : 1);
+        const key = [red, green, blue].map((channel) => Math.round(channel / 32)).join(',');
+        const bucket = buckets.get(key) || { score: 0, count: 0, red: 0, green: 0, blue: 0 };
+
+        bucket.score += weight;
+        bucket.count += 1;
+        bucket.red += red;
+        bucket.green += green;
+        bucket.blue += blue;
+        buckets.set(key, bucket);
+      }
+
+      const dominant = [...buckets.values()].sort((first, second) => second.score - first.score)[0];
+      if (!dominant) throw new Error('Image did not contain usable pixels.');
+
+      resolve([
+        Math.round(dominant.red / dominant.count),
+        Math.round(dominant.green / dominant.count),
+        Math.round(dominant.blue / dominant.count),
+      ].join(', '));
+    } catch (error) {
+      reject(error);
+    }
+  };
+  image.onerror = () => reject(new Error('Could not load image to extract its accent color.'));
+  image.src = imageUrl;
+});
+
+function useImageAccent(imageUrl) {
+  const [accent, setAccent] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    setAccent('');
+    if (!imageUrl) return () => { active = false; };
+
+    extractImageAccent(imageUrl)
+      .then((color) => {
+        if (active) setAccent(color);
+      })
+      .catch((error) => {
+        if (active) {
+          setAccent('');
+          console.warn('Could not extract artwork accent color; using the default gradient.', error);
+        }
+      });
+
+    return () => { active = false; };
+  }, [imageUrl]);
+
+  return accent;
+}
+
 const uploadImage = async (file) => {
   const formData = new FormData();
   formData.append('image', file);
@@ -663,6 +742,8 @@ function ArtistDetailPage() {
   const { artistId } = useParams();
   const { user } = useAuth();
   const [artistData, setArtistData] = useState(null);
+  const artistBannerUrl = artistData?.artist?.banner_url || artistData?.artist?.image_url || '';
+  const artistAccent = useImageAccent(artistBannerUrl);
 
   useEffect(() => {
     api.get(`/artists/${artistId}`).then((res) => setArtistData(res.data)).catch(console.error);
@@ -672,10 +753,10 @@ function ArtistDetailPage() {
 
   return (
     <div className="content-stack">
-      <div className="artist-hero glass-panel">
+      <div className="artist-hero glass-panel" style={{ '--image-accent-rgb': artistAccent || '72, 152, 174' }}>
         <img
           className="artist-hero-media"
-          src={artistData.artist.banner_url || artistData.artist.image_url}
+          src={artistBannerUrl || getArtistFallbackImage(artistData.artist)}
           onError={(event) => handleImageError(event, getArtistFallbackImage(artistData.artist))}
           alt=""
           aria-hidden="true"
@@ -789,6 +870,10 @@ function ReleaseDetailPage() {
   const [favoriteTrackIds, setFavoriteTrackIds] = useState([]);
   const [openLyricsTrackId, setOpenLyricsTrackId] = useState(null);
   const [lyricsDisplayMode, setLyricsDisplayMode] = useState('lyrics');
+  const releaseCoverUrl = releaseInfo?.release
+    ? releaseInfo.release.cover_url || getReleaseFallbackImage(releaseInfo.release)
+    : '';
+  const releaseAccent = useImageAccent(releaseCoverUrl);
 
   const load = async () => {
     const releaseRes = await api.get(`/releases/${releaseId}`);
@@ -925,8 +1010,8 @@ function ReleaseDetailPage() {
 
   return (
     <div className="content-stack release-view">
-      <div className="release-detail glass-panel">
-        <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
+      <div className="release-detail glass-panel" style={{ '--image-accent-rgb': releaseAccent || '123, 146, 255' }}>
+        <img src={releaseCoverUrl} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
         <div className="release-copy-wrap">
           <p className="eyebrow">{release.release_type}</p>
           <h1>{release.title}</h1>
@@ -2106,7 +2191,7 @@ function AdminPage() {
                 <button type="button" className="ghost-btn compact-btn" onClick={resetArtistForm}>
                   Cancelar edição
                 </button>
-                <button type="button" className="ghost-btn compact-btn" onClick={() => handleArtistDelete(editingArtistId)}>
+                <button type="button" className="ghost-btn secondary-btn" onClick={() => handleArtistDelete(editingArtistId)}>
                   Excluir artista
                 </button>
               </div>

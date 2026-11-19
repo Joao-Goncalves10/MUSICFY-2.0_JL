@@ -21,6 +21,7 @@ This combination keeps the project lightweight while still providing a real pers
 - Review publishing and rating system
 - Review likes with live counts on release pages, profiles, and the social feed
 - Artist detail pages and release detail pages
+- Release and artist detail gradients adapt to dominant colors in their artwork
 - Social feed with recent user reviews
 - Public user profiles with profile discovery, follow/unfollow, and follower/following lists
 - User profile page with reviews, playlists, and favorite tracks
