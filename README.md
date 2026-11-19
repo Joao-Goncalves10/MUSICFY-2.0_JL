@@ -27,6 +27,7 @@ This combination keeps the project lightweight while still providing a real pers
 - Admin-managed home carousel for multiple releases, each with a custom banner, description, ordering, and removal controls
 - Home sidebar showing active releases from the previous two months
 - Public user profiles with profile discovery, follow/unfollow, and follower/following lists
+- Artist follows and in-app notifications for new followers, review likes, and new releases from followed artists or pre-saved releases
 - User profile page with reviews, playlists, and favorite tracks
 - Playlist and favorites support
 - Pre-save flow and notification model
@@ -117,7 +118,7 @@ The command imports artists, genres, artist-genre relationships, releases, and t
 
 User passwords are stored as bcrypt hashes. Reviews and their likes use `reviews` and `review_likes`; track favorites use `favorites`. Playlists, playlist tracks, pre-saves, notifications, and featured releases are persisted in their corresponding tables. A new database is seeded with roles, the configured admin account, a demo user, artists, releases, and tracks.
 
-User follow relationships are stored in `user_follows`. The authenticated social page searches public profiles; following and review likes require a signed-in user. Public profile pages include follower/following lists and social counts. Review GIFs are stored in `review_media`.
+User follow relationships are stored in `user_follows`, artist follows in `artist_follows`, and in-app notifications in `notifications`. The authenticated social page searches public profiles; user/artist follows and review likes require a signed-in user. Public profile pages include follower/following lists and social counts. Notifications are polled while signed in and can be marked as read individually or all at once. Review GIFs are stored in `review_media`.
 
 Additional content endpoints (writes require an admin token):
 
@@ -135,6 +136,9 @@ Social endpoints:
 - `GET /api/users/:userId/followers` and `GET /api/users/:userId/following` — list profile connections
 - `GET /api/profile/:userId` — read a public profile, including reviews, playlists, favorites, and follow state
 - `POST /api/reviews/:id/like` — like or unlike a review (authentication required)
+- `GET /api/artists/:id/follow`, `POST /api/artists/:id/follow`, and `DELETE /api/artists/:id/follow` — read or change an artist follow (authentication required)
+- `GET /api/notifications` — list notifications and unread count (authentication required)
+- `POST /api/notifications/:id/read` and `POST /api/notifications/read-all` — mark notifications as read (authentication required)
 - `GET /api/home-feed` — return a personalized review feed and releases from the last two months
 
 ## Build for production
