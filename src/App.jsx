@@ -562,6 +562,7 @@ function ReleaseDetailPage() {
   const [reviewText, setReviewText] = useState('');
   const [rating, setRating] = useState(8);
   const [message, setMessage] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [preSaved, setPreSaved] = useState(false);
   const [playlists, setPlaylists] = useState([]);
@@ -642,6 +643,8 @@ function ReleaseDetailPage() {
 
   const submitReview = async (event) => {
     event.preventDefault();
+    setIsSubmittingReview(true);
+    setMessage('');
     try {
       await api.post('/reviews', { release_id: Number(releaseId), rating, review_text: reviewText });
       setMessage('Avaliação publicada com sucesso.');
@@ -650,6 +653,8 @@ function ReleaseDetailPage() {
       await load();
     } catch (error) {
       setMessage(error.response?.data?.error || 'Não foi possível publicar a avaliação.');
+    } finally {
+      setIsSubmittingReview(false);
     }
   };
 
@@ -720,7 +725,10 @@ function ReleaseDetailPage() {
               </button>
             )}
             {user && (
-              <button className="secondary-btn" onClick={() => setIsReviewModalOpen(true)} type="button">
+              <button className="secondary-btn" onClick={() => {
+                setMessage('');
+                setIsReviewModalOpen(true);
+              }} type="button">
                 Avaliar
               </button>
             )}
@@ -898,24 +906,97 @@ function ReleaseDetailPage() {
       )}
 
       {isReviewModalOpen && (
-        <div className="modal-backdrop" onClick={() => setIsReviewModalOpen(false)}>
-          <div className="review-modal glass-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Avaliar {release.title}</h3>
-              <button type="button" className="close-btn" onClick={() => setIsReviewModalOpen(false)}>×</button>
+        <div className="modal-backdrop review-backdrop" onClick={() => !isSubmittingReview && setIsReviewModalOpen(false)}>
+          <div
+            className="review-modal glass-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="review-modal-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="review-modal-header">
+              <div>
+                <p className="eyebrow">Sua opinião importa</p>
+                <h2 id="review-modal-title">Avaliar lançamento</h2>
+              </div>
+              <button
+                type="button"
+                className="close-btn review-close-btn"
+                aria-label="Fechar avaliação"
+                disabled={isSubmittingReview}
+                onClick={() => setIsReviewModalOpen(false)}
+              >
+                ×
+              </button>
             </div>
+
             <form onSubmit={submitReview} className="review-form">
-              <label>
-                Nota de 0 a 10
-                <input type="range" min="0" max="10" value={rating} onChange={(e) => setRating(Number(e.target.value))} />
-                <div className="rating-inline">
-                  <RatingBadge value={rating} />
-                  <span>{rating}/10</span>
+              <div className="review-album-summary">
+                <img
+                  src={release.cover_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?auto=format&fit=crop&w=800&q=80'}
+                  alt=""
+                />
+                <div>
+                  <span>{release.release_type}</span>
+                  <strong>{release.title}</strong>
+                  <small>{release.artist_name}</small>
                 </div>
+              </div>
+
+              <section className="review-rating-section" aria-labelledby="review-rating-label">
+                <div className="review-rating-heading">
+                  <div>
+                    <h3 id="review-rating-label">Que nota você daria?</h3>
+                    <p>Arraste para escolher uma nota de 0 a 10</p>
+                  </div>
+                  <div className="review-score" aria-live="polite">
+                    <strong>{rating}</strong>
+                    <span>/10</span>
+                  </div>
+                </div>
+                <input
+                  className="review-rating-slider"
+                  type="range"
+                  min="0"
+                  max="10"
+                  step="1"
+                  value={rating}
+                  aria-label={`Nota: ${rating} de 10`}
+                  onChange={(e) => setRating(Number(e.target.value))}
+                />
+                <div className="review-rating-scale" aria-hidden="true">
+                  <span>Não gostei</span>
+                  <span>Adorei</span>
+                </div>
+              </section>
+
+              <label className="review-text-label" htmlFor="review-text">
+                <span>Conte o que achou <small>opcional</small></span>
+                <textarea
+                  id="review-text"
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  placeholder="O que mais chamou sua atenção neste lançamento?"
+                  rows="5"
+                  disabled={isSubmittingReview}
+                />
               </label>
-              <textarea value={reviewText} onChange={(e) => setReviewText(e.target.value)} placeholder="Escreva sua resenha para esta música..." rows="5" />
-              <button className="primary-btn" type="submit">Salvar avaliação</button>
-              {message && <p>{message}</p>}
+
+              {message && <p className="review-error" role="alert">{message}</p>}
+
+              <div className="review-modal-actions">
+                <button
+                  className="secondary-btn"
+                  type="button"
+                  disabled={isSubmittingReview}
+                  onClick={() => setIsReviewModalOpen(false)}
+                >
+                  Cancelar
+                </button>
+                <button className="primary-btn" type="submit" disabled={isSubmittingReview}>
+                  {isSubmittingReview ? 'Publicando...' : 'Publicar avaliação'}
+                </button>
+              </div>
             </form>
           </div>
         </div>
