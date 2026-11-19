@@ -232,6 +232,7 @@ function AppContent({ theme, onToggleTheme }) {
       <div className={`app-layout${user?.is_suspended ? ' is-account-suspended' : ''}`}>
         <Sidebar />
         <main className="page-shell">
+          <EmailVerificationNotice />
           <AccountAccessGate>
             <Routes>
               <Route path="/" element={<HomePage />} />
@@ -242,12 +243,90 @@ function AppContent({ theme, onToggleTheme }) {
               <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
               <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
               <Route path="/profile/:userId" element={<ProfilePage />} />
+              <Route path="/verify-email" element={<EmailVerificationPage />} />
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
             </Routes>
           </AccountAccessGate>
         </main>
       </div>
+    </div>
+  );
+}
+
+function EmailVerificationNotice() {
+  const { user } = useAuth();
+  const [message, setMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+
+  if (!user || user.email_verified) return null;
+
+  const resendVerification = async () => {
+    setIsSending(true);
+    setMessage('');
+    try {
+      const response = await api.post('/auth/resend-verification', { email: user.email });
+      setMessage(response.data.message);
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Não foi possível enviar o e-mail. Tente novamente.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  return (
+    <aside className="email-verification-notice" role="status">
+      <div>
+        <strong>Confirme seu e-mail para desbloquear as interações.</strong>
+        <span>Você pode navegar pelo site, mas publicar e interagir exige uma conta verificada.</span>
+        {message && <small>{message}</small>}
+      </div>
+      <button type="button" className="secondary-btn" onClick={resendVerification} disabled={isSending}>
+        {isSending ? 'Enviando…' : 'Reenviar confirmação'}
+      </button>
+    </aside>
+  );
+}
+
+function EmailVerificationPage() {
+  const [searchParams] = useSearchParams();
+  const { updateUser } = useAuth();
+  const token = searchParams.get('token') || '';
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  const [message, setMessage] = useState(token ? '' : 'O link de confirmação está incompleto.');
+
+  const verifyEmail = async () => {
+    setIsVerifying(true);
+    setMessage('');
+    try {
+      const response = await api.post('/auth/verify-email', { token });
+      updateUser({ email_verified: true });
+      setIsVerified(true);
+      setMessage(response.data.message);
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Não foi possível confirmar o e-mail. Solicite um novo link.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  return (
+    <div className="auth-verification-page">
+      <section className="auth-box glass-panel">
+        <p className="auth-eyebrow">SEGURANÇA DA CONTA</p>
+        <h1>Confirmação de e-mail</h1>
+        <p role={message && !isVerified ? 'alert' : 'status'}>
+          {message || 'Clique para confirmar seu endereço de e-mail e desbloquear as interações.'}
+        </p>
+        {!message && (
+          <button type="button" className="primary-btn" onClick={verifyEmail} disabled={isVerifying}>
+            {isVerifying ? 'Confirmando…' : 'Confirmar meu e-mail'}
+          </button>
+        )}
+        {isVerified && <Link to="/" className="primary-btn">Continuar no Musicfy</Link>}
+        {message && !isVerified && <Link to="/auth" className="primary-btn">Entrar ou solicitar novo link</Link>}
+      </section>
     </div>
   );
 }
@@ -2596,6 +2675,9 @@ function AuthPage() {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ username: '', full_name: '', email: '', password: '', confirmPassword: '' });
   const [error, setError] = useState('');
+  const [verificationPendingEmail, setVerificationPendingEmail] = useState('');
+  const [verificationMessage, setVerificationMessage] = useState('');
+  const [isResending, setIsResending] = useState(false);
 
   useEffect(() => {
     if (user) navigate('/');
@@ -2607,11 +2689,44 @@ function AuthPage() {
       const url = mode === 'login' ? '/auth/login' : '/auth/register';
       const payload = mode === 'login' ? { username: form.username, password: form.password } : { ...form };
       const res = await api.post(url, payload);
+      if (mode === 'register') {
+        setVerificationPendingEmail(res.data.email || form.email.trim());
+        setVerificationMessage(res.data.message || '');
+        setError('');
+        return;
+      }
       login(res.data.token, res.data.user);
       navigate('/');
     } catch (err) {
+      if (err.response?.data?.code === 'EMAIL_DELIVERY_FAILED') {
+        setVerificationPendingEmail(form.email.trim());
+        setVerificationMessage(err.response.data.error);
+        setError('');
+        return;
+      }
       setError(err.response?.data?.error || 'Falha na autenticação.');
     }
+  };
+
+  const resendVerification = async () => {
+    setIsResending(true);
+    setError('');
+    setVerificationMessage('');
+    try {
+      const response = await api.post('/auth/resend-verification', { email: verificationPendingEmail });
+      setVerificationMessage(response.data.message);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Não foi possível reenviar o e-mail.');
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  const changeMode = (nextMode) => {
+    setMode(nextMode);
+    setError('');
+    setVerificationPendingEmail('');
+    setVerificationMessage('');
   };
 
   return (
@@ -2645,15 +2760,26 @@ function AuthPage() {
         <div className="auth-box-heading">
           <p className="auth-eyebrow">{mode === 'login' ? 'BOM TER VOCÊ DE VOLTA' : 'ENTRE PARA A COMUNIDADE'}</p>
           <h2>{mode === 'login' ? 'A música continua.' : 'Sua jornada começa aqui.'}</h2>
-          <p>{mode === 'login' ? 'Entre na sua conta para continuar.' : 'Crie sua conta e encontre seu próximo som favorito.'}</p>
+          <p>{mode === 'login' ? 'Entre na sua conta para continuar.' : 'Crie sua conta e confirme o e-mail para publicar resenhas e interagir.'}</p>
         </div>
 
         <div className="auth-toggle" role="group" aria-label="Tipo de acesso">
-          <button aria-pressed={mode === 'login'} className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError(''); }} type="button">Entrar</button>
-          <button aria-pressed={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError(''); }} type="button">Criar conta</button>
+          <button aria-pressed={mode === 'login'} className={mode === 'login' ? 'active' : ''} onClick={() => changeMode('login')} type="button">Entrar</button>
+          <button aria-pressed={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => changeMode('register')} type="button">Criar conta</button>
         </div>
 
-        <form onSubmit={submit} className="auth-form">
+        {verificationPendingEmail ? (
+          <div className="email-verification-pending" role="status">
+            <strong>Confirme seu e-mail para ativar a conta</strong>
+            <p>{verificationMessage || `Enviamos um link de confirmação para ${verificationPendingEmail}. O link expira em 30 minutos.`}</p>
+            {error && <p className="error-text">{error}</p>}
+            <button type="button" className="primary-btn auth-submit" onClick={resendVerification} disabled={isResending}>
+              {isResending ? 'Enviando…' : 'Reenviar e-mail de confirmação'}
+            </button>
+            <button type="button" className="secondary-btn" onClick={() => changeMode('login')}>Voltar para entrar</button>
+          </div>
+        ) : (
+          <form onSubmit={submit} className="auth-form">
           {mode === 'register' && (
             <>
               <label className="auth-field">Nome completo
@@ -2666,10 +2792,10 @@ function AuthPage() {
           )}
 
           <label className="auth-field">Nome de usuário
-            <input autoComplete="username" placeholder="Seu nome de usuário" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+            <input autoComplete="username" maxLength={mode === 'register' ? 30 : undefined} pattern={mode === 'register' ? '[A-Za-z0-9._-]{3,30}' : undefined} placeholder="Seu nome de usuário" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
           </label>
           <label className="auth-field">Senha
-            <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Sua senha" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+            <input type="password" minLength={mode === 'register' ? 12 : undefined} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder={mode === 'register' ? 'Mínimo de 12 caracteres' : 'Sua senha'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
           </label>
 
           {mode === 'register' && (
@@ -2683,9 +2809,10 @@ function AuthPage() {
             {mode === 'login' ? 'Entrar no Musicfy' : 'Criar minha conta'}
             <span aria-hidden="true">→</span>
           </button>
-        </form>
+          </form>
+        )}
 
-        <p className="auth-privacy-note">Sua próxima descoberta musical está a poucos segundos.</p>
+        <p className="auth-privacy-note">Sua próxima descoberta musical está a poucos segundos. Para publicar e interagir, é necessário entrar e confirmar o e-mail.</p>
       </div>
     </div>
   );
