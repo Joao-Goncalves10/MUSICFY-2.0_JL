@@ -35,83 +35,98 @@ const handleImageError = (event, fallbackImage) => {
   image.src = fallbackImage;
 };
 
-const extractImageAccent = (imageUrl) => new Promise((resolve, reject) => {
-  const image = new Image();
-  image.crossOrigin = 'anonymous';
-  image.onload = () => {
-    try {
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d', { willReadFrequently: true });
-      if (!context) throw new Error('Canvas 2D context is unavailable.');
-
-      canvas.width = 32;
-      canvas.height = 32;
-      context.drawImage(image, 0, 0, canvas.width, canvas.height);
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-      const buckets = new Map();
-
-      for (let index = 0; index < pixels.length; index += 4) {
-        const alpha = pixels[index + 3] / 255;
-        if (alpha < 0.5) continue;
-
-        const red = pixels[index];
-        const green = pixels[index + 1];
-        const blue = pixels[index + 2];
-        const maximum = Math.max(red, green, blue);
-        const minimum = Math.min(red, green, blue);
-        const brightness = (red * 0.2126 + green * 0.7152 + blue * 0.0722) / 255;
-        const saturation = maximum ? (maximum - minimum) / maximum : 0;
-        const weight = alpha * (0.3 + saturation) * (brightness < 0.08 || brightness > 0.94 ? 0.2 : 1);
-        const key = [red, green, blue].map((channel) => Math.round(channel / 32)).join(',');
-        const bucket = buckets.get(key) || { score: 0, count: 0, red: 0, green: 0, blue: 0 };
-
-        bucket.score += weight;
-        bucket.count += 1;
-        bucket.red += red;
-        bucket.green += green;
-        bucket.blue += blue;
-        buckets.set(key, bucket);
-      }
-
-      const dominant = [...buckets.values()].sort((first, second) => second.score - first.score)[0];
-      if (!dominant) throw new Error('Image did not contain usable pixels.');
-
-      resolve([
-        Math.round(dominant.red / dominant.count),
-        Math.round(dominant.green / dominant.count),
-        Math.round(dominant.blue / dominant.count),
-      ].join(', '));
-    } catch (error) {
-      reject(error);
-    }
-  };
-  image.onerror = () => reject(new Error('Could not load image to extract its accent color.'));
-  image.src = imageUrl;
-});
-
-function useImageAccent(imageUrl) {
-  const [accent, setAccent] = useState('');
+function ArtworkBackdrop({ src, className }) {
+  const canvases = useRef([]);
+  const isGif = typeof src === 'string' && (/\.gif(?:$|[?#])/i.test(src) || /^data:image\/gif/i.test(src));
+  const [activeFrame, setActiveFrame] = useState(-1);
+  const [canvasFailed, setCanvasFailed] = useState(false);
 
   useEffect(() => {
+    setActiveFrame(-1);
+    setCanvasFailed(false);
+    if (!isGif || !src) return undefined;
+
     let active = true;
-    setAccent('');
-    if (!imageUrl) return () => { active = false; };
+    let currentFrame = 0;
+    let timer;
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
 
-    extractImageAccent(imageUrl)
-      .then((color) => {
-        if (active) setAccent(color);
-      })
-      .catch((error) => {
+    const drawFrame = (frameIndex) => {
+      const canvas = canvases.current[frameIndex];
+      if (!canvas || !image.naturalWidth || !image.naturalHeight) return false;
+
+      const width = 320;
+      const height = 160;
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('Canvas 2D context is unavailable.');
+
+      const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+      const drawWidth = image.naturalWidth * scale;
+      const drawHeight = image.naturalHeight * scale;
+      context.clearRect(0, 0, width, height);
+      context.drawImage(image, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
+      return true;
+    };
+
+    image.onload = () => {
+      try {
+        if (!drawFrame(currentFrame)) throw new Error('Could not render the animated artwork.');
+        setActiveFrame(currentFrame);
+        timer = window.setInterval(() => {
+          try {
+            const nextFrame = 1 - currentFrame;
+            if (drawFrame(nextFrame)) {
+              currentFrame = nextFrame;
+              setActiveFrame(nextFrame);
+            }
+          } catch (error) {
+            if (active) {
+              window.clearInterval(timer);
+              setCanvasFailed(true);
+              console.warn('Could not create a slow animated artwork backdrop.', error);
+            }
+          }
+        }, 3500);
+      } catch (error) {
         if (active) {
-          setAccent('');
-          console.warn('Could not extract artwork accent color; using the default gradient.', error);
+          setCanvasFailed(true);
+          console.warn('Could not create a slow animated artwork backdrop.', error);
         }
-      });
+      }
+    };
+    image.onerror = () => {
+      if (active) {
+        setCanvasFailed(true);
+        console.warn('Could not load the animated artwork for its backdrop.');
+      }
+    };
+    image.src = src;
 
-    return () => { active = false; };
-  }, [imageUrl]);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      image.onload = null;
+      image.onerror = null;
+    };
+  }, [src, isGif]);
 
-  return accent;
+  return (
+    <div className={`artwork-backdrop ${className || ''}`} aria-hidden="true">
+      {(!isGif || canvasFailed || activeFrame < 0) && (
+        <img className="artwork-backdrop-image" src={src} alt="" />
+      )}
+      {isGif && !canvasFailed && [0, 1].map((frameIndex) => (
+        <canvas
+          key={frameIndex}
+          ref={(canvas) => { canvases.current[frameIndex] = canvas; }}
+          className={`artwork-backdrop-frame${activeFrame === frameIndex ? ' is-visible' : ''}`}
+        />
+      ))}
+    </div>
+  );
 }
 
 const uploadImage = async (file) => {
@@ -743,7 +758,6 @@ function ArtistDetailPage() {
   const { user } = useAuth();
   const [artistData, setArtistData] = useState(null);
   const artistBannerUrl = artistData?.artist?.banner_url || artistData?.artist?.image_url || '';
-  const artistAccent = useImageAccent(artistBannerUrl);
 
   useEffect(() => {
     api.get(`/artists/${artistId}`).then((res) => setArtistData(res.data)).catch(console.error);
@@ -753,7 +767,8 @@ function ArtistDetailPage() {
 
   return (
     <div className="content-stack">
-      <div className="artist-hero glass-panel" style={{ '--image-accent-rgb': artistAccent || '72, 152, 174' }}>
+      <div className="artist-hero glass-panel">
+        <ArtworkBackdrop src={artistBannerUrl || getArtistFallbackImage(artistData.artist)} className="artist-hero-artwork-glow" />
         <img
           className="artist-hero-media"
           src={artistBannerUrl || getArtistFallbackImage(artistData.artist)}
@@ -873,7 +888,6 @@ function ReleaseDetailPage() {
   const releaseCoverUrl = releaseInfo?.release
     ? releaseInfo.release.cover_url || getReleaseFallbackImage(releaseInfo.release)
     : '';
-  const releaseAccent = useImageAccent(releaseCoverUrl);
 
   const load = async () => {
     const releaseRes = await api.get(`/releases/${releaseId}`);
@@ -1010,7 +1024,8 @@ function ReleaseDetailPage() {
 
   return (
     <div className="content-stack release-view">
-      <div className="release-detail glass-panel" style={{ '--image-accent-rgb': releaseAccent || '123, 146, 255' }}>
+      <div className="release-detail glass-panel">
+        <ArtworkBackdrop src={releaseCoverUrl} className="release-artwork-backdrop" />
         <img src={releaseCoverUrl} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
         <div className="release-copy-wrap">
           <p className="eyebrow">{release.release_type}</p>
