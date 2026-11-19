@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import adelaProfileImage from './img/artist/adéla/icons/adela_profile.jpg';
@@ -358,6 +358,7 @@ function Navbar({ theme, onToggleTheme }) {
         </button>
         {user ? (
           <>
+            <NotificationCenter />
             <NavLink to={`/profile/${user.id}`} className="account-link">
               <span className="account-avatar">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>
               <span className="account-name">{user.full_name || user.username}</span>
@@ -369,6 +370,149 @@ function Navbar({ theme, onToggleTheme }) {
         )}
       </div>
     </header>
+  );
+}
+
+function NotificationCenter() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const rootRef = useRef(null);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isOpen, setIsOpen] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const response = await api.get('/notifications');
+      setNotifications(response.data.notifications || []);
+      setUnreadCount(Number(response.data.unread_count || 0));
+      setError('');
+    } catch (requestError) {
+      console.error(requestError);
+      setError(requestError.response?.data?.error || 'Não foi possível carregar as notificações.');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!user) return undefined;
+    void loadNotifications();
+    const timer = window.setInterval(() => { void loadNotifications(); }, 60000);
+    return () => window.clearInterval(timer);
+  }, [user?.id, loadNotifications]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const closeOnOutsideClick = (event) => {
+      if (!rootRef.current?.contains(event.target)) setIsOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [isOpen]);
+
+  const markAllAsRead = async () => {
+    try {
+      await api.post('/notifications/read-all');
+      setNotifications((current) => current.map((notification) => ({ ...notification, read_status: 1 })));
+      setUnreadCount(0);
+      setError('');
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Não foi possível marcar as notificações como lidas.');
+    }
+  };
+
+  const openNotification = async (notification) => {
+    if (!notification.read_status) {
+      try {
+        await api.post(`/notifications/${notification.id}/read`);
+        setNotifications((current) => current.map((item) => (
+          item.id === notification.id ? { ...item, read_status: 1 } : item
+        )));
+        setUnreadCount((count) => Math.max(0, count - 1));
+      } catch (requestError) {
+        setError(requestError.response?.data?.error || 'Não foi possível atualizar esta notificação.');
+        return;
+      }
+    }
+
+    setIsOpen(false);
+    if (notification.link_url) navigate(notification.link_url);
+  };
+
+  const getNotificationIcon = (type) => {
+    if (type === 'USER_FOLLOW') return '♙';
+    if (type === 'REVIEW_LIKE') return '♥';
+    if (type === 'NEW_RELEASE') return '♫';
+    return '•';
+  };
+
+  return (
+    <div className="notification-center" ref={rootRef}>
+      <button
+        type="button"
+        className="notification-trigger"
+        aria-label={unreadCount ? `Notificações, ${unreadCount} não lidas` : 'Notificações'}
+        aria-expanded={isOpen}
+        aria-controls="notification-popover"
+        onClick={() => {
+          setIsOpen((open) => !open);
+          if (!isOpen) void loadNotifications();
+        }}
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+          <path d="M10 21h4" />
+        </svg>
+        {unreadCount > 0 && <span className="notification-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+      </button>
+
+      {isOpen && (
+        <section className="notification-popover" id="notification-popover" aria-label="Notificações">
+          <header className="notification-popover-header">
+            <div>
+              <strong>Notificações</strong>
+              <small>{unreadCount ? `${unreadCount} não lida${unreadCount === 1 ? '' : 's'}` : 'Tudo em dia'}</small>
+            </div>
+            {unreadCount > 0 && (
+              <button type="button" className="notification-mark-all" onClick={markAllAsRead}>
+                Marcar todas como lidas
+              </button>
+            )}
+          </header>
+          {error && <p className="notification-error" role="alert">{error}</p>}
+          {notifications.length ? (
+            <div className="notification-list">
+              {notifications.map((notification) => (
+                <button
+                  type="button"
+                  key={notification.id}
+                  className={`notification-item${notification.read_status ? '' : ' is-unread'}`}
+                  onClick={() => void openNotification(notification)}
+                >
+                  <span className={`notification-icon is-${String(notification.type || 'general').toLowerCase()}`} aria-hidden="true">
+                    {getNotificationIcon(notification.type)}
+                  </span>
+                  <span className="notification-copy">
+                    <span>{notification.message}</span>
+                    <small>{formatFeedDate(notification.created_at)}</small>
+                  </span>
+                  {!notification.read_status && <span className="notification-unread-dot" aria-label="Não lida" />}
+                </button>
+              ))}
+            </div>
+          ) : !error ? (
+            <p className="notification-empty">Você ainda não tem notificações.</p>
+          ) : null}
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -757,6 +901,70 @@ function FollowButton({ userId, initialFollowing = false, onChange }) {
   );
 }
 
+function ArtistFollowButton({ artistId }) {
+  const { user } = useAuth();
+  const [following, setFollowing] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!user) {
+      setFollowing(false);
+      setFollowerCount(0);
+      return undefined;
+    }
+
+    let active = true;
+    api.get(`/artists/${artistId}/follow`)
+      .then((response) => {
+        if (!active) return;
+        setFollowing(Boolean(response.data.following));
+        setFollowerCount(Number(response.data.follower_count || 0));
+      })
+      .catch((requestError) => {
+        if (!active) return;
+        setError(requestError.response?.data?.error || 'Não foi possível carregar o seguimento do artista.');
+      });
+
+    return () => { active = false; };
+  }, [artistId, user?.id]);
+
+  if (!user) return <Link to="/auth" className="follow-btn">Entrar para seguir artista</Link>;
+
+  const toggleFollow = async () => {
+    setIsSaving(true);
+    setError('');
+    try {
+      const response = following
+        ? await api.delete(`/artists/${artistId}/follow`)
+        : await api.post(`/artists/${artistId}/follow`);
+      setFollowing(Boolean(response.data.following));
+      setFollowerCount(Number(response.data.follower_count || 0));
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Não foi possível atualizar o seguimento do artista.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="artist-follow-control">
+      <button
+        type="button"
+        className={`follow-btn${following ? ' is-following' : ''}`}
+        aria-pressed={following}
+        disabled={isSaving}
+        onClick={toggleFollow}
+      >
+        {isSaving ? 'Salvando...' : following ? 'Seguindo artista' : 'Seguir artista'}
+      </button>
+      <span className="artist-follow-count">{followerCount} seguidores</span>
+      {error && <span className="follow-error" role="alert">{error}</span>}
+    </div>
+  );
+}
+
 function ReviewLikeButton({ review, user, onChange }) {
   const [liked, setLiked] = useState(Boolean(review.liked_by_user));
   const [likeCount, setLikeCount] = useState(Number(review.like_count || 0));
@@ -978,6 +1186,7 @@ function ArtistDetailPage() {
           <span aria-hidden="true">▶</span>
           Ver discografia
         </a>
+        <ArtistFollowButton artistId={artistData.artist.id} />
         <nav className="artist-page-tabs" aria-label="Seções do artista">
           <a href="#artist-discography">Lançamentos</a>
           <a href="#artist-about">Sobre</a>
