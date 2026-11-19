@@ -2136,6 +2136,7 @@ function AdminPage() {
   const [stats, setStats] = useState({ artists: { count: 0 }, releases: { count: 0 }, users: { count: 0 }, reviews: { count: 0 } });
   const [artistList, setArtistList] = useState([]);
   const [releaseList, setReleaseList] = useState([]);
+  const [featuredList, setFeaturedList] = useState([]);
   const [artistImageUploads, setArtistImageUploads] = useState(0);
   const [isReleaseCoverUploading, setIsReleaseCoverUploading] = useState(false);
   const [editingArtistId, setEditingArtistId] = useState(null);
@@ -2163,9 +2164,14 @@ function AdminPage() {
 
   const refreshCatalogLists = async () => {
     try {
-      const [artistsRes, releasesRes] = await Promise.all([api.get('/artists'), api.get('/releases')]);
+      const [artistsRes, releasesRes, featuredRes] = await Promise.all([
+        api.get('/artists'),
+        api.get('/releases'),
+        api.get('/admin/featured'),
+      ]);
       setArtistList(artistsRes.data || []);
       setReleaseList(releasesRes.data || []);
+      setFeaturedList(featuredRes.data || []);
     } catch (error) {
       console.error(error);
       reportAdminError(error, 'Não foi possível carregar o catálogo. Consulte os logs do servidor.');
@@ -2331,6 +2337,17 @@ function AdminPage() {
       refreshCatalogLists();
     } catch (error) {
       reportAdminError(error, 'Não foi possível salvar o destaque. Confira o lançamento selecionado.');
+    }
+  };
+
+  const handleFeaturedDelete = async (featuredId) => {
+    if (!window.confirm('Remover este banner do carrossel? O álbum continuará no catálogo.')) return;
+    setAdminError('');
+    try {
+      await api.delete(`/admin/featured/${featuredId}`);
+      setFeaturedList((current) => current.filter((item) => item.id !== featuredId));
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível remover o destaque.');
     }
   };
 
@@ -2644,6 +2661,37 @@ function AdminPage() {
             {isFeaturedBannerUploading ? 'Enviando banner…' : 'Salvar destaque'}
           </button>
         </form>
+      </div>
+
+      <div className="admin-listing-panel glass-panel">
+        <div className="section-header compact">
+          <div>
+            <h3>Destaques do carrossel</h3>
+            <p>Adicione outros álbuns no formulário acima; cada lançamento vira um slide.</p>
+          </div>
+        </div>
+        <div className="admin-list-grid">
+          {featuredList.map((featured) => (
+            <div key={featured.id} className="admin-list-item featured-admin-list-item">
+              <img
+                src={featured.banner_url || featured.cover_url || getReleaseFallbackImage(featured)}
+                onError={(event) => handleImageError(event, featured.cover_url || getReleaseFallbackImage(featured))}
+                alt=""
+              />
+              <div className="featured-admin-copy">
+                <strong>{featured.title}</strong>
+                <small>{featured.artist_name} · posição {featured.sort_order}</small>
+                <p>{featured.description || 'Sem descrição'}</p>
+              </div>
+              <div className="admin-list-actions">
+                <button type="button" className="danger-btn compact-btn" onClick={() => handleFeaturedDelete(featured.id)}>
+                  Remover banner
+                </button>
+              </div>
+            </div>
+          ))}
+          {!featuredList.length && <p className="image-drop-hint">Nenhum álbum no carrossel ainda.</p>}
+        </div>
       </div>
 
       <div className="admin-listing-panel glass-panel">

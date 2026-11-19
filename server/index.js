@@ -1403,7 +1403,6 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
       AND TRIM(COALESCE(fr.banner_url, '')) <> ''
       AND TRIM(COALESCE(fr.description, '')) <> ''
     ORDER BY fr.sort_order ASC, fr.id ASC
-    LIMIT 8
   `);
 
   const recentReleases = await allDb(`
@@ -1530,6 +1529,18 @@ app.post('/api/admin/reset-catalog', requireAuth, requireAdmin, resetCatalogHand
 app.post('/api/admin/reset', requireAuth, requireAdmin, resetCatalogHandler);
 app.post('/api/admin/catalog/reset', requireAuth, requireAdmin, resetCatalogHandler);
 
+app.get('/api/admin/featured', requireAuth, requireAdmin, async (req, res) => {
+  const featured = await allDb(`
+    SELECT fr.id, fr.release_id, fr.sort_order, fr.banner_url, fr.description,
+      r.title, r.cover_url, r.status, a.name AS artist_name
+    FROM featured_releases fr
+    JOIN releases r ON r.id = fr.release_id
+    JOIN artists a ON a.id = r.artist_id
+    ORDER BY fr.sort_order ASC, fr.id ASC
+  `);
+  return res.json(featured);
+});
+
 app.post('/api/admin/featured', requireAuth, requireAdmin, async (req, res) => {
   const { release_id, sort_order, banner_url, description } = req.body;
   const releaseId = Number(release_id);
@@ -1570,6 +1581,21 @@ app.post('/api/admin/featured', requireAuth, requireAdmin, async (req, res) => {
     [releaseId, order, bannerUrl, featuredDescription]
   );
   return res.status(201).json({ message: 'Destaque criado.' });
+});
+
+app.delete('/api/admin/featured/:featuredId', requireAuth, requireAdmin, async (req, res) => {
+  const featuredId = Number(req.params.featuredId);
+  if (!Number.isSafeInteger(featuredId) || featuredId < 1) {
+    return res.status(400).json({ error: 'Destaque inválido.' });
+  }
+
+  const featured = await getDb('SELECT id FROM featured_releases WHERE id = ?', [featuredId]);
+  if (!featured) {
+    return res.status(404).json({ error: 'Destaque não encontrado.' });
+  }
+
+  await runDb('DELETE FROM featured_releases WHERE id = ?', [featuredId]);
+  return res.json({ message: 'Destaque removido do carrossel.' });
 });
 
 app.get('/api/dashboard', requireAuth, requireAdmin, async (req, res) => {
