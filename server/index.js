@@ -642,7 +642,7 @@ app.use(helmet({
     },
   } : false,
 }));
-const corsMiddleware = cors({
+app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.has(origin.replace(/\/$/, ''))) return callback(null, true);
     const error = new Error('Origin not allowed by CORS.');
@@ -650,22 +650,7 @@ const corsMiddleware = cors({
     return callback(error);
   },
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-});
-app.use('/api', (req, res, next) => {
-  const origin = req.get('Origin');
-  if (!origin) return next();
-
-  try {
-    const requestOrigin = new URL(`${req.protocol}://${req.get('host')}`).origin;
-    if (new URL(origin).origin === requestOrigin) return next();
-  } catch {
-    const error = new Error('Invalid Origin header.');
-    error.status = 403;
-    return next(error);
-  }
-
-  return corsMiddleware(req, res, next);
-});
+}));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false, limit: '16kb' }));
 app.use('/uploads/artist-banners', express.static(artistBannerUploadDir));
