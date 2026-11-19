@@ -2585,11 +2585,11 @@ textarea {
   text-align: center;
 }
 
-.community-page {
+.social-page {
   gap: 26px;
 }
 
-.community-hero {
+.social-hero {
   display: grid;
   gap: 8px;
   padding: clamp(24px, 5vw, 42px);
@@ -2600,7 +2600,7 @@ textarea {
     var(--glass);
 }
 
-.community-hero .eyebrow {
+.social-hero .eyebrow {
   margin: 0;
   color: var(--primary);
   font-size: 0.72rem;
@@ -2609,46 +2609,46 @@ textarea {
   text-transform: uppercase;
 }
 
-.community-hero h1 {
+.social-hero h1 {
   margin: 0;
   font-size: clamp(2rem, 5vw, 3.2rem);
   letter-spacing: -0.055em;
 }
 
-.community-hero > p:not(.eyebrow) {
+.social-hero > p:not(.eyebrow) {
   max-width: 600px;
   margin: 0 0 8px;
   color: var(--muted);
 }
 
-.community-search {
+.social-search {
   width: min(100%, 560px);
 }
 
-.community-search input {
+.social-search input {
   border-color: var(--line);
   border-radius: 15px;
   background: var(--glass-soft);
   box-shadow: none;
 }
 
-.community-results {
+.social-results {
   display: grid;
   gap: 16px;
 }
 
-.community-result-count {
+.social-result-count {
   color: var(--muted);
   font-size: 0.82rem;
 }
 
-.community-user-grid {
+.social-user-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(265px, 1fr));
   gap: 14px;
 }
 
-.community-user-card {
+.social-user-card {
   display: grid;
   gap: 12px;
   padding: 16px;
@@ -2656,7 +2656,7 @@ textarea {
   background: var(--glass);
 }
 
-.community-user-link {
+.social-user-link {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -2665,7 +2665,7 @@ textarea {
   text-decoration: none;
 }
 
-.community-user-link > img {
+.social-user-link > img {
   width: 48px;
   height: 48px;
   flex: 0 0 48px;
@@ -2674,33 +2674,33 @@ textarea {
   object-fit: cover;
 }
 
-.community-user-copy {
+.social-user-copy {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
-.community-user-copy strong,
-.community-user-copy small {
+.social-user-copy strong,
+.social-user-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.community-user-copy strong {
+.social-user-copy strong {
   font-size: 0.9rem;
 }
 
-.community-user-copy small {
+.social-user-copy small {
   color: var(--muted);
   font-size: 0.75rem;
 }
 
-.community-user-link:hover strong {
+.social-user-link:hover strong {
   color: var(--primary);
 }
 
-.community-user-card > p {
+.social-user-card > p {
   display: -webkit-box;
   min-height: 38px;
   margin: 0;
@@ -2712,7 +2712,7 @@ textarea {
   -webkit-line-clamp: 2;
 }
 
-.community-user-footer {
+.social-user-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2721,7 +2721,7 @@ textarea {
   border-top: 1px solid var(--line);
 }
 
-.community-user-footer > span {
+.social-user-footer > span {
   color: var(--muted);
   font-size: 0.76rem;
 }
