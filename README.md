@@ -24,7 +24,7 @@ This combination keeps the project lightweight while still providing a real pers
 - Artist detail pages and release detail pages
 - Release and artist detail panels use blurred artwork as adaptive color gradients; animated GIF colors cross-fade slowly
 - Personalized home feed with reviews from followed users and releases saved by the user
-- Admin-managed home carousel with a custom banner and description for each featured release
+- Admin-managed home carousel for multiple releases, each with a custom banner, description, ordering, and removal controls
 - Home sidebar showing active releases from the previous two months
 - Public user profiles with profile discovery, follow/unfollow, and follower/following lists
 - User profile page with reviews, playlists, and favorite tracks
