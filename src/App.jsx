@@ -1208,58 +1208,23 @@ function ExplorePage() {
 
 function ArtistsPage() {
   const [artists, setArtists] = useState([]);
-  const [query, setQuery] = useState('');
-  const [genreFilter, setGenreFilter] = useState('Todos');
-  const [sortOrder, setSortOrder] = useState('name');
-  const [genreOptions, setGenreOptions] = useState(MUSIC_GENRES);
 
   useEffect(() => {
     api.get('/artists').then((res) => setArtists(res.data)).catch(console.error);
   }, []);
 
-  useEffect(() => {
-    api.get('/genres')
-      .then((response) => setGenreOptions(mergeGenreOptions(response.data)))
-      .catch(console.error);
-  }, []);
-
-  const normalizedQuery = normalizeGenre(query);
-  const filtered = artists
-    .filter((artist) => {
-      const artistGenres = splitGenreNames(artist.genre_names || artist.genre).map(normalizeGenre);
-      return (
-        normalizeGenre(artist.name).includes(normalizedQuery)
-        && (genreFilter === 'Todos' || artistGenres.includes(normalizeGenre(genreFilter)))
-      );
-    })
-    .sort((first, second) => sortOrder === 'releases'
-      ? Number(second.release_count || 0) - Number(first.release_count || 0)
-        || String(first.name).localeCompare(String(second.name))
-      : String(first.name).localeCompare(String(second.name)));
-
   return (
     <div className="content-stack">
       <div className="section-header">
         <h2>Artistas</h2>
-        <span className="explore-filter-label">{filtered.length} encontrados</span>
-      </div>
-      <div className="listing-filters">
-        <input className="search-input" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar artistas" aria-label="Pesquisar artistas" />
-        <select aria-label="Filtrar artistas por gênero" value={genreFilter} onChange={(event) => setGenreFilter(event.target.value)}>
-          <option>Todos</option>
-          {genreOptions.map((genre) => <option key={genre}>{genre}</option>)}
-        </select>
-        <select aria-label="Ordenar artistas" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}>
-          <option value="name">Nome (A–Z)</option>
-          <option value="releases">Mais lançamentos</option>
-        </select>
+        <span className="explore-filter-label">{artists.length} artistas</span>
       </div>
       <div className="artist-grid">
-        {filtered.map((artist) => (
+        {artists.map((artist) => (
           <ArtistCard key={artist.id} artist={artist} />
         ))}
       </div>
-      {!filtered.length && <p className="explore-empty-state">Nenhum artista corresponde aos filtros selecionados.</p>}
+      {!artists.length && <p className="explore-empty-state">Nenhum artista cadastrado ainda.</p>}
     </div>
   );
 }
@@ -1801,9 +1766,6 @@ function ArtistDetailPage() {
   const { artistId } = useParams();
   const { user } = useAuth();
   const [artistData, setArtistData] = useState(null);
-  const [releaseQuery, setReleaseQuery] = useState('');
-  const [releaseTypeFilter, setReleaseTypeFilter] = useState('Todos');
-  const [releaseSort, setReleaseSort] = useState('newest');
   const artistBannerUrl = artistData?.artist?.banner_url || artistData?.artist?.image_url || '';
 
   useEffect(() => {
@@ -1811,18 +1773,6 @@ function ArtistDetailPage() {
   }, [artistId]);
 
   if (!artistData) return <div className="loading-panel">Carregando artista…</div>;
-
-  const normalizedReleaseQuery = normalizeGenre(releaseQuery);
-  const visibleArtistReleases = artistData.releases
-    .filter((release) => (
-      (!normalizedReleaseQuery || normalizeGenre(release.title).includes(normalizedReleaseQuery))
-      && (releaseTypeFilter === 'Todos' || release.release_type === releaseTypeFilter)
-    ))
-    .sort((first, second) => {
-      if (releaseSort === 'oldest') return String(first.release_date).localeCompare(String(second.release_date));
-      if (releaseSort === 'title') return String(first.title).localeCompare(String(second.title));
-      return String(second.release_date).localeCompare(String(first.release_date));
-    });
 
   return (
     <div className="content-stack">
@@ -1870,30 +1820,10 @@ function ArtistDetailPage() {
         <div className="artist-section-heading">
           <p className="eyebrow">Conheça a discografia</p>
           <h2>Lançamentos populares</h2>
-          <span className="explore-filter-label">{visibleArtistReleases.length} encontrados</span>
-        </div>
-        <div className="listing-filters">
-          <input
-            type="search"
-            value={releaseQuery}
-            onChange={(event) => setReleaseQuery(event.target.value)}
-            placeholder="Buscar lançamento pelo título"
-            aria-label="Buscar lançamentos do artista"
-          />
-          <select aria-label="Filtrar discografia por tipo" value={releaseTypeFilter} onChange={(event) => setReleaseTypeFilter(event.target.value)}>
-            <option>Todos</option>
-            <option>Album</option>
-            <option>EP</option>
-            <option>Single</option>
-          </select>
-          <select aria-label="Ordenar discografia" value={releaseSort} onChange={(event) => setReleaseSort(event.target.value)}>
-            <option value="newest">Mais recentes</option>
-            <option value="oldest">Mais antigos</option>
-            <option value="title">Título (A–Z)</option>
-          </select>
+          <span className="explore-filter-label">{artistData.releases.length} lançamentos</span>
         </div>
         <div className="artist-release-list">
-          {visibleArtistReleases.length ? visibleArtistReleases.map((release, index) => (
+          {artistData.releases.length ? artistData.releases.map((release, index) => (
             <Link key={release.id} to={`/releases/${release.id}`} className="artist-release-row">
               <span className="artist-release-rank">{index + 1}</span>
               <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
@@ -1903,9 +1833,7 @@ function ArtistDetailPage() {
               </span>
               <span className="artist-release-open">Abrir lançamento <span aria-hidden="true">↗</span></span>
             </Link>
-          )) : artistData.releases.length ? (
-            <p className="artist-empty-state">Nenhum lançamento corresponde aos filtros.</p>
-          ) : (
+          )) : (
             <p className="artist-empty-state">Este artista ainda não tem lançamentos cadastrados.</p>
           )}
         </div>
@@ -1956,11 +1884,6 @@ function ReleaseDetailPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [releaseInfo, setReleaseInfo] = useState(null);
-  const [trackQuery, setTrackQuery] = useState('');
-  const [explicitFilter, setExplicitFilter] = useState('all');
-  const [reviewQuery, setReviewQuery] = useState('');
-  const [reviewRatingFilter, setReviewRatingFilter] = useState('all');
-  const [reviewSort, setReviewSort] = useState('newest');
   const [reviewText, setReviewText] = useState('');
   const [reviewGifUrl, setReviewGifUrl] = useState('');
   const [rating, setRating] = useState(8);
@@ -2145,22 +2068,6 @@ function ReleaseDetailPage() {
 
   const { release, tracks, reviews } = releaseInfo;
   const canWrite = isAccountApproved(user);
-  const normalizedTrackQuery = normalizeGenre(trackQuery);
-  const visibleTracks = tracks.filter((track) => (
-    (!normalizedTrackQuery || normalizeGenre(track.title).includes(normalizedTrackQuery))
-    && (explicitFilter === 'all' || (explicitFilter === 'explicit' ? Boolean(track.explicit) : !track.explicit))
-  ));
-  const normalizedReviewQuery = normalizeGenre(reviewQuery);
-  const visibleReviews = reviews
-    .filter((review) => (
-      (!normalizedReviewQuery || normalizeGenre(`${review.username} ${review.full_name} ${review.review_text}`).includes(normalizedReviewQuery))
-      && (reviewRatingFilter === 'all' || Number(review.rating || 0) >= Number(reviewRatingFilter))
-    ))
-    .sort((first, second) => {
-      if (reviewSort === 'rating') return Number(second.rating || 0) - Number(first.rating || 0);
-      if (reviewSort === 'likes') return Number(second.like_count || 0) - Number(first.like_count || 0);
-      return String(second.created_at).localeCompare(String(first.created_at));
-    });
   const selectedLyricsTrack = tracks.find((track) => track.id === openLyricsTrackId);
   const isFutureRelease = new Date(release.release_date) > new Date();
   const formattedReleaseDate = release.release_date ? new Date(release.release_date + 'T00:00:00').toLocaleDateString('pt-BR', {
@@ -2270,26 +2177,12 @@ function ReleaseDetailPage() {
             {canWrite && playlists.length === 0 && (
               <Link to={`/profile/${user.id}?tab=playlists`} className="tracklist-create-playlist">Criar playlist</Link>
             )}
-            <span>{visibleTracks.length} de {tracks.length} faixas</span>
+            <span>{tracks.length} faixas</span>
           </div>
         </div>
         {playlistActionMessage && <p className="playlist-action-message" role="status">{playlistActionMessage}</p>}
-        <div className="listing-filters">
-          <input
-            type="search"
-            value={trackQuery}
-            onChange={(event) => setTrackQuery(event.target.value)}
-            placeholder="Buscar faixa pelo título"
-            aria-label="Buscar faixas"
-          />
-          <select aria-label="Filtrar faixas por conteúdo explícito" value={explicitFilter} onChange={(event) => setExplicitFilter(event.target.value)}>
-            <option value="all">Todas as faixas</option>
-            <option value="explicit">Explícitas</option>
-            <option value="clean">Sem conteúdo explícito</option>
-          </select>
-        </div>
         <div className="tracklist">
-          {visibleTracks.map((track) => {
+          {tracks.map((track) => {
             const isLyricsOpen = openLyricsTrackId === track.id;
             return (
               <div key={track.id} className={`track-item glass-panel ${isLyricsOpen ? 'is-open' : ''}`}>
@@ -2359,7 +2252,7 @@ function ReleaseDetailPage() {
               </div>
             );
           })}
-          {!visibleTracks.length && <p className="explore-empty-state">Nenhuma faixa corresponde aos filtros.</p>}
+          {!tracks.length && <p className="explore-empty-state">Nenhuma faixa cadastrada neste lançamento.</p>}
         </div>
       </section>
 
@@ -2574,29 +2467,10 @@ function ReleaseDetailPage() {
       <section className="subsection">
         <div className="section-heading-row">
           <h3>Notas sociais</h3>
-          <span>{visibleReviews.length} de {reviews.length}</span>
-        </div>
-        <div className="listing-filters">
-          <input
-            type="search"
-            value={reviewQuery}
-            onChange={(event) => setReviewQuery(event.target.value)}
-            placeholder="Buscar por pessoa ou comentário"
-            aria-label="Buscar resenhas do lançamento"
-          />
-          <select aria-label="Filtrar resenhas por nota" value={reviewRatingFilter} onChange={(event) => setReviewRatingFilter(event.target.value)}>
-            <option value="all">Todas as notas</option>
-            <option value="8">Nota 8 ou mais</option>
-            <option value="5">Nota 5 ou mais</option>
-          </select>
-          <select aria-label="Ordenar resenhas" value={reviewSort} onChange={(event) => setReviewSort(event.target.value)}>
-            <option value="newest">Mais recentes</option>
-            <option value="rating">Melhor avaliadas</option>
-            <option value="likes">Mais curtidas</option>
-          </select>
+          <span>{reviews.length} resenhas</span>
         </div>
         <div className="feed-list">
-          {visibleReviews.map((review) => (
+          {reviews.map((review) => (
             <div key={review.id} className="review-feed-item glass-panel">
               <div className="review-head">
                 <Link to={`/profile/${review.user_id}`} className="mini-user review-author-link">
@@ -2625,7 +2499,7 @@ function ReleaseDetailPage() {
               </div>
             </div>
           ))}
-          {!visibleReviews.length && <p className="explore-empty-state">Nenhuma resenha corresponde aos filtros.</p>}
+          {!reviews.length && <p className="explore-empty-state">Ainda não há resenhas para este lançamento.</p>}
         </div>
       </section>
     </div>
