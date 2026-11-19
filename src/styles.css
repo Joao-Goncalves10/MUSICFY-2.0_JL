@@ -1600,6 +1600,7 @@ textarea {
 .artist-hero::before {
   z-index: 1;
   background:
+    radial-gradient(ellipse at 12% 8%, rgba(var(--image-accent-rgb, 72, 152, 174), 0.4), transparent 62%),
     linear-gradient(180deg, rgba(18,18,18,0.06) 0%, rgba(18,18,18,0.28) 46%, #121212 100%),
     linear-gradient(90deg, rgba(18,18,18,0.28), transparent 78%);
   backdrop-filter: none;
@@ -3581,8 +3582,7 @@ textarea {
   overflow: hidden;
   border-color: rgba(255,255,255,0.12);
   background:
-    radial-gradient(ellipse at 8% 100%, rgba(119, 233, 190, 0.14), transparent 38%),
-    radial-gradient(ellipse at 100% 0%, rgba(123, 146, 255, 0.13), transparent 42%),
+    radial-gradient(ellipse at 8% 8%, rgba(var(--image-accent-rgb, 123, 146, 255), 0.34), transparent 52%),
     linear-gradient(135deg, rgba(255,255,255,0.13), rgba(255,255,255,0.035));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.2), 0 30px 80px rgba(0,0,0,0.22);
 }
@@ -3780,8 +3780,7 @@ textarea {
 :root[data-theme="light"] .release-view .release-detail {
   border-color: rgba(45,68,88,0.09);
   background:
-    radial-gradient(ellipse at 8% 100%, rgba(113,195,150,0.14), transparent 38%),
-    radial-gradient(ellipse at 100% 0%, rgba(133,157,221,0.11), transparent 42%),
+    radial-gradient(ellipse at 8% 8%, rgba(var(--image-accent-rgb, 123, 146, 255), 0.22), transparent 52%),
     linear-gradient(135deg, rgba(255,255,255,0.9), rgba(246,249,251,0.72));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.92), 0 28px 68px rgba(42,59,78,0.13);
 }
