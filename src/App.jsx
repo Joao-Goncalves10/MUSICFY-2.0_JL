@@ -773,10 +773,13 @@ function ArtistCard({ artist }) {
 function ReleaseDetailPage() {
   const { releaseId } = useParams();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [releaseInfo, setReleaseInfo] = useState(null);
   const [reviewText, setReviewText] = useState('');
   const [rating, setRating] = useState(8);
   const [message, setMessage] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+  const [isDeletingRelease, setIsDeletingRelease] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [preSaved, setPreSaved] = useState(false);
@@ -901,6 +904,24 @@ function ReleaseDetailPage() {
     year: 'numeric',
   }) : 'Data indisponível';
 
+  const deleteRelease = async () => {
+    const confirmed = window.confirm(
+      `Excluir "${release.title}"? As faixas, avaliações, curtidas, favoritos e vínculos em playlists também serão removidos. Esta ação não pode ser desfeita.`
+    );
+    if (!confirmed) return;
+
+    setDeleteError('');
+    setIsDeletingRelease(true);
+    try {
+      await api.delete(`/releases/${release.id}`);
+      navigate('/admin', { replace: true });
+    } catch (error) {
+      setDeleteError(error.response?.data?.error || 'Não foi possível excluir o lançamento. Tente novamente.');
+    } finally {
+      setIsDeletingRelease(false);
+    }
+  };
+
   return (
     <div className="content-stack release-view">
       <div className="release-detail glass-panel">
@@ -950,7 +971,19 @@ function ReleaseDetailPage() {
                 Editar álbum
               </Link>
             )}
+            {user?.role === 'ADMIN' && (
+              <button
+                type="button"
+                className="danger-btn compact-btn"
+                onClick={deleteRelease}
+                disabled={isDeletingRelease}
+                aria-label={`Excluir ${release.title}`}
+              >
+                {isDeletingRelease ? 'Excluindo…' : 'Excluir lançamento'}
+              </button>
+            )}
           </div>
+          {deleteError && <p className="error-text" role="alert">{deleteError}</p>}
         </div>
       </div>
 
@@ -2258,7 +2291,7 @@ function AdminPage() {
               </div>
               <div className="admin-list-actions">
                 <button type="button" className="secondary-btn compact-btn" onClick={() => handleReleaseEdit(release)}>Editar</button>
-                <button type="button" className="ghost-btn compact-btn" onClick={() => handleReleaseDelete(release.id)}>Excluir</button>
+                <button type="button" className="danger-btn compact-btn" onClick={() => handleReleaseDelete(release.id)}>Excluir</button>
               </div>
             </div>
           ))}
