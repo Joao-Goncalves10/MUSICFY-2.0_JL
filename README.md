@@ -29,7 +29,8 @@ This combination keeps the project lightweight while still providing a real pers
 - Public user profiles with profile discovery, follow/unfollow, and follower/following lists
 - Artist follows and in-app notifications for new followers, review likes, and new releases from followed artists or pre-saved releases
 - User profile page with reviews, playlists, and favorite tracks
-- Playlist and favorites support
+- Playlists with public detail pages, custom descriptions and covers, track add/remove/reordering, and owner-only edit/delete controls
+- Track favorites
 - Pre-save flow and notification model
 - Admin dashboard for creating and editing artists and releases, with edit shortcuts on artist and release detail pages
 - Admin tools organized into catalog, homepage highlights, and moderation sections; profile suspensions are reversible and users can access their in-app notices
@@ -138,6 +139,11 @@ Social endpoints:
 - `POST /api/users/:userId/follow` and `DELETE /api/users/:userId/follow` — follow or unfollow a user (authentication required)
 - `GET /api/users/:userId/followers` and `GET /api/users/:userId/following` — list profile connections
 - `GET /api/profile/:userId` — read a public profile, including reviews, playlists, favorites, and follow state
+- `GET /api/playlists/:playlistId` — read a public playlist and its ordered track list
+- `POST /api/playlists` and `PUT /api/playlists/:playlistId` — create or edit an owned playlist
+- `DELETE /api/playlists/:playlistId` — delete an owned playlist
+- `POST /api/playlists/:playlistId/tracks` and `DELETE /api/playlists/:playlistId/tracks/:trackId` — add or remove a track
+- `PUT /api/playlists/:playlistId/tracks/order` — reorder all tracks in an owned playlist
 - `POST /api/reviews/:id/like` — like or unlike a review (authentication required)
 - `GET /api/artists/:id/follow`, `POST /api/artists/:id/follow`, and `DELETE /api/artists/:id/follow` — read or change an artist follow (authentication required)
 - `GET /api/notifications` — list notifications and unread count (authentication required)
