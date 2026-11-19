@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   playlist_id BIGINT UNSIGNED NOT NULL,
   track_id BIGINT UNSIGNED NOT NULL,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
   PRIMARY KEY (id),
   UNIQUE KEY uq_playlist_tracks (playlist_id, track_id),
   KEY idx_playlist_tracks_track_id (track_id),

@@ -241,6 +241,7 @@ function AppContent({ theme, onToggleTheme }) {
               <Route path="/community" element={<Navigate to="/social" replace />} />
               <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
               <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
+              <Route path="/playlists/:playlistId" element={<PlaylistPage />} />
               <Route path="/profile/:userId" element={<ProfilePage />} />
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
@@ -1588,6 +1589,7 @@ function ReleaseDetailPage() {
   const [preSaved, setPreSaved] = useState(false);
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
+  const [playlistActionMessage, setPlaylistActionMessage] = useState('');
   const [favoriteTrackIds, setFavoriteTrackIds] = useState([]);
   const [openLyricsTrackId, setOpenLyricsTrackId] = useState(null);
   const [lyricsDisplayMode, setLyricsDisplayMode] = useState('lyrics');
@@ -1661,15 +1663,16 @@ function ReleaseDetailPage() {
   const addTrackToPlaylist = async (trackId) => {
     if (!user) return;
     if (!selectedPlaylistId) {
-      alert('Crie uma playlist no seu perfil primeiro.');
+      setPlaylistActionMessage('Crie uma playlist no seu perfil antes de adicionar músicas.');
       return;
     }
 
-    const res = await api.post(`/playlists/${selectedPlaylistId}/tracks`, { track_id: trackId });
-    if (res.data.added) {
-      alert('Música adicionada à playlist.');
-    } else {
-      alert('Essa música já está na playlist.');
+    setPlaylistActionMessage('');
+    try {
+      const response = await api.post(`/playlists/${selectedPlaylistId}/tracks`, { track_id: trackId });
+      setPlaylistActionMessage(response.data.added ? 'Música adicionada à playlist.' : 'Essa música já está na playlist.');
+    } catch (error) {
+      setPlaylistActionMessage(error.response?.data?.error || 'Não foi possível adicionar a música.');
     }
   };
 
@@ -1852,8 +1855,24 @@ function ReleaseDetailPage() {
       <section className="subsection album-tracklist-panel">
         <div className="section-heading-row">
           <h3>Lista de faixas</h3>
-          <span>{tracks.length} faixas</span>
+          <div className="tracklist-playlist-control">
+            {user && playlists.length > 0 && (
+              <label>
+                <span>Adicionar em</span>
+                <select value={selectedPlaylistId} onChange={(event) => setSelectedPlaylistId(event.target.value)}>
+                  {playlists.map((playlist) => (
+                    <option key={playlist.id} value={playlist.id}>{playlist.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {user && playlists.length === 0 && (
+              <Link to={`/profile/${user.id}?tab=playlists`} className="tracklist-create-playlist">Criar playlist</Link>
+            )}
+            <span>{tracks.length} faixas</span>
+          </div>
         </div>
+        {playlistActionMessage && <p className="playlist-action-message" role="status">{playlistActionMessage}</p>}
         <div className="tracklist">
           {tracks.map((track) => {
             const isLyricsOpen = openLyricsTrackId === track.id;
@@ -2174,15 +2193,247 @@ function ReleaseDetailPage() {
   );
 }
 
+function PlaylistPage() {
+  const { playlistId } = useParams();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [playlistData, setPlaylistData] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [form, setForm] = useState({ name: '', description: '', cover_url: '' });
+
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+    setError('');
+    api.get(`/playlists/${playlistId}`)
+      .then(({ data }) => {
+        if (!active) return;
+        setPlaylistData(data);
+        setForm({
+          name: data.playlist.name || '',
+          description: data.playlist.description || '',
+          cover_url: data.playlist.cover_url || '',
+        });
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError.response?.data?.error || 'Não foi possível carregar esta playlist.');
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+    return () => { active = false; };
+  }, [playlistId]);
+
+  const isOwner = Boolean(user && playlistData && Number(user.id) === Number(playlistData.playlist.user_id));
+  const reloadPlaylist = async () => {
+    const response = await api.get(`/playlists/${playlistId}`);
+    setPlaylistData(response.data);
+    setForm({
+      name: response.data.playlist.name || '',
+      description: response.data.playlist.description || '',
+      cover_url: response.data.playlist.cover_url || '',
+    });
+  };
+
+  const savePlaylist = async (event) => {
+    event.preventDefault();
+    setActionError('');
+    setIsSaving(true);
+    try {
+      await api.put(`/playlists/${playlistId}`, form);
+      setIsEditing(false);
+      await reloadPlaylist();
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.error || 'Não foi possível salvar as alterações.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const deletePlaylist = async () => {
+    if (!window.confirm(`Excluir a playlist "${playlistData.playlist.name}"? Esta ação não pode ser desfeita.`)) return;
+    setActionError('');
+    try {
+      await api.delete(`/playlists/${playlistId}`);
+      navigate(`/profile/${playlistData.playlist.user_id}`, { replace: true });
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.error || 'Não foi possível excluir a playlist.');
+    }
+  };
+
+  const removeTrack = async (trackId) => {
+    setActionError('');
+    try {
+      await api.delete(`/playlists/${playlistId}/tracks/${trackId}`);
+      await reloadPlaylist();
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.error || 'Não foi possível remover a música.');
+    }
+  };
+
+  const moveTrack = async (index, direction) => {
+    const tracks = [...playlistData.tracks];
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= tracks.length) return;
+    [tracks[index], tracks[nextIndex]] = [tracks[nextIndex], tracks[index]];
+    setActionError('');
+    try {
+      await api.put(`/playlists/${playlistId}/tracks/order`, {
+        track_ids: tracks.map((track) => track.track_id),
+      });
+      setPlaylistData((current) => ({ ...current, tracks }));
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.error || 'Não foi possível reordenar as músicas.');
+    }
+  };
+
+  if (isLoading) {
+    return <div className="playlist-page-loading glass-panel" role="status">Carregando playlist…</div>;
+  }
+  if (error || !playlistData) {
+    return (
+      <section className="profile-empty-state glass-panel">
+        <span aria-hidden="true">♫</span>
+        <h1>Playlist indisponível</h1>
+        <p>{error || 'Esta playlist não existe ou não está mais disponível.'}</p>
+        <Link to="/explore" className="secondary-btn">Explorar música</Link>
+      </section>
+    );
+  }
+
+  const { playlist, tracks } = playlistData;
+  const playlistCover = playlist.cover_url || tracks[0]?.release_cover || imagePlaceholder;
+
+  return (
+    <div className="content-stack playlist-page">
+      <section className="playlist-hero glass-panel">
+        <img
+          className="playlist-hero-cover"
+          src={playlistCover}
+          onError={(event) => handleImageError(event, imagePlaceholder)}
+          alt={`Capa da playlist ${playlist.name}`}
+        />
+        <div className="playlist-hero-copy">
+          <p className="eyebrow">PLAYLIST</p>
+          <h1>{playlist.name}</h1>
+          <Link to={`/profile/${playlist.user_id}`} className="playlist-owner-link">
+            {playlist.full_name || playlist.username}
+          </Link>
+          <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
+          <span>{tracks.length} {tracks.length === 1 ? 'música' : 'músicas'}</span>
+        </div>
+        {isOwner && (
+          <div className="playlist-hero-actions">
+            <button type="button" className="secondary-btn" onClick={() => setIsEditing((value) => !value)}>
+              {isEditing ? 'Cancelar edição' : 'Editar playlist'}
+            </button>
+            <button type="button" className="danger-btn compact-btn" onClick={deletePlaylist}>
+              Excluir
+            </button>
+          </div>
+        )}
+      </section>
+
+      {actionError && <p className="playlist-form-error" role="alert">{actionError}</p>}
+
+      {isEditing && isOwner && (
+        <form className="playlist-edit-form glass-panel" onSubmit={savePlaylist}>
+          <label className="auth-field">Nome da playlist
+            <input
+              value={form.name}
+              maxLength={191}
+              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+              required
+            />
+          </label>
+          <label className="auth-field">Descrição
+            <textarea
+              value={form.description}
+              maxLength={2000}
+              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+              rows={3}
+            />
+          </label>
+          <label className="auth-field">URL da capa (opcional)
+            <input
+              type="url"
+              value={form.cover_url}
+              maxLength={512}
+              onChange={(event) => setForm((current) => ({ ...current, cover_url: event.target.value }))}
+              placeholder="https://..."
+            />
+          </label>
+          <button type="submit" className="primary-btn" disabled={isSaving}>
+            {isSaving ? 'Salvando…' : 'Salvar alterações'}
+          </button>
+        </form>
+      )}
+
+      <section className="playlist-track-section">
+        <div className="section-heading-row">
+          <h2>Músicas</h2>
+          <span>{tracks.length} {tracks.length === 1 ? 'faixa' : 'faixas'}</span>
+        </div>
+        {tracks.length ? (
+          <ol className="playlist-track-list">
+            {tracks.map((track, index) => (
+              <li className="playlist-track-row glass-panel" key={`${track.track_id}-${index}`}>
+                <span className="playlist-track-position">{String(index + 1).padStart(2, '0')}</span>
+                <img
+                  src={track.release_cover || imagePlaceholder}
+                  onError={(event) => handleImageError(event, imagePlaceholder)}
+                  alt=""
+                />
+                <div className="playlist-track-copy">
+                  <Link to={`/releases/${track.release_id}`} className="playlist-track-title">{track.track_title}</Link>
+                  <span>{track.artist_name} · {track.release_title}</span>
+                </div>
+                {track.youtube_url && (
+                  <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">Ouvir</a>
+                )}
+                <span className="playlist-track-duration">{track.duration || '—'}</span>
+                {isOwner && (
+                  <div className="playlist-track-owner-actions">
+                    <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0} aria-label={`Mover ${track.track_title} para cima`}>↑</button>
+                    <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === tracks.length - 1} aria-label={`Mover ${track.track_title} para baixo`}>↓</button>
+                    <button type="button" onClick={() => removeTrack(track.track_id)} aria-label={`Remover ${track.track_title} da playlist`}>×</button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <div className="profile-empty-state glass-panel">
+            <span aria-hidden="true">♫</span>
+            <h3>Esta playlist ainda está vazia</h3>
+            <p>{isOwner ? 'Abra um álbum ou EP e adicione músicas usando o botão “Playlist”.' : 'O proprietário ainda não adicionou músicas.'}</p>
+            <Link to="/explore" className="secondary-btn">Explorar lançamentos</Link>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function ProfilePage() {
   const { userId } = useParams();
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [profileSearchParams] = useSearchParams();
   const [profile, setProfile] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
   const [profileImageUploads, setProfileImageUploads] = useState(0);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(() => (
+    profileSearchParams.get('tab') === 'playlists' ? 'playlists' : 'overview'
+  ));
   const [form, setForm] = useState({ username: '', full_name: '', bio: '', avatar_url: '', banner_url: '' });
   const [playlistName, setPlaylistName] = useState('');
+  const [playlistDescription, setPlaylistDescription] = useState('');
+  const [playlistCoverUrl, setPlaylistCoverUrl] = useState('');
   const [playlistError, setPlaylistError] = useState('');
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
   const [socialListMode, setSocialListMode] = useState('');
@@ -2208,6 +2459,10 @@ function ProfilePage() {
     loadProfile();
   }, [userId, user]);
 
+  useEffect(() => {
+    if (profileSearchParams.get('tab') === 'playlists') setActiveTab('playlists');
+  }, [profileSearchParams]);
+
   const saveProfile = async () => {
     await api.put('/users/me', form);
     await loadProfile();
@@ -2224,9 +2479,16 @@ function ProfilePage() {
     setPlaylistError('');
     setIsCreatingPlaylist(true);
     try {
-      await api.post('/playlists', { name, description: 'Playlist criada no Musicfy.' });
+      const response = await api.post('/playlists', {
+        name,
+        description: playlistDescription.trim(),
+        cover_url: playlistCoverUrl.trim(),
+      });
       setPlaylistName('');
+      setPlaylistDescription('');
+      setPlaylistCoverUrl('');
       await loadProfile();
+      navigate(`/playlists/${response.data.playlistId}`);
     } catch (error) {
       setPlaylistError(error.response?.data?.error || 'Não foi possível criar a playlist. Tente novamente.');
     } finally {
@@ -2503,7 +2765,7 @@ function ProfilePage() {
               <div className="playlist-create-copy">
                 <p className="eyebrow">Nova coleção</p>
                 <h3>Crie a trilha do seu próximo momento</h3>
-                <p>Dê um nome à playlist. Depois, você poderá adicionar suas músicas favoritas.</p>
+                <p>Defina os detalhes e adicione músicas aos poucos para montar sua seleção.</p>
                 <div className="playlist-create-form">
                   <input
                     value={playlistName}
@@ -2515,6 +2777,24 @@ function ProfilePage() {
                     placeholder="Ex.: Noites tranquilas"
                     aria-label="Nome da playlist"
                     required
+                    disabled={isCreatingPlaylist}
+                  />
+                  <textarea
+                    value={playlistDescription}
+                    maxLength={2000}
+                    onChange={(event) => setPlaylistDescription(event.target.value)}
+                    placeholder="Descrição (opcional)"
+                    aria-label="Descrição da playlist"
+                    rows={2}
+                    disabled={isCreatingPlaylist}
+                  />
+                  <input
+                    type="url"
+                    value={playlistCoverUrl}
+                    maxLength={512}
+                    onChange={(event) => setPlaylistCoverUrl(event.target.value)}
+                    placeholder="URL da capa (opcional)"
+                    aria-label="URL da capa da playlist"
                     disabled={isCreatingPlaylist}
                   />
                   <button type="submit" className="primary-btn" disabled={isCreatingPlaylist}>
@@ -2529,7 +2809,7 @@ function ProfilePage() {
           {profile.playlists.length ? (
             <div className="profile-playlist-grid">
               {profile.playlists.map((playlist) => (
-                <article key={playlist.id} className="profile-playlist-card glass-panel">
+                <Link to={`/playlists/${playlist.id}`} key={playlist.id} className="profile-playlist-card glass-panel">
                   <div className="profile-playlist-artwork">
                     <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
                     <span aria-hidden="true">♫</span>
@@ -2539,7 +2819,8 @@ function ProfilePage() {
                     <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
                     <small>{Number(playlist.track_count || 0)} {Number(playlist.track_count || 0) === 1 ? 'música' : 'músicas'}</small>
                   </div>
-                </article>
+                  <span className="profile-playlist-open" aria-hidden="true">↗</span>
+                </Link>
               ))}
             </div>
           ) : (

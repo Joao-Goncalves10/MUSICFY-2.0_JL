@@ -325,6 +325,15 @@ const requireAdmin = (req, res, next) => {
 async function initializeDatabase() {
   await execDb(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
+  const playlistSortOrderColumn = await getDb(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'playlist_tracks' AND COLUMN_NAME = 'sort_order'
+  `);
+  if (!playlistSortOrderColumn) {
+    await execDb('ALTER TABLE playlist_tracks ADD COLUMN sort_order INT UNSIGNED NOT NULL DEFAULT 0');
+  }
+
   await execDb('DROP TABLE IF EXISTS email_verification_tokens');
   const emailVerifiedColumn = await getDb(`
     SELECT COLUMN_NAME
@@ -1702,35 +1711,179 @@ app.get('/api/genres', async (req, res) => {
 });
 
 app.get('/api/playlists', requireAuth, async (req, res) => {
-  const playlists = await allDb('SELECT * FROM playlists WHERE user_id = ? ORDER BY created_at DESC', [req.user.id]);
+  const playlists = await allDb(`
+    SELECT p.*,
+      (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id = p.id) AS track_count
+    FROM playlists p
+    WHERE p.user_id = ?
+    ORDER BY p.created_at DESC, p.id DESC
+  `, [req.user.id]);
   return res.json(playlists);
+});
+
+app.get('/api/playlists/:playlistId', async (req, res) => {
+  const playlistId = parsePositiveId(req.params.playlistId);
+  if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
+
+  const playlist = await getDb(`
+    SELECT p.*, u.username, u.full_name, u.avatar_url,
+      (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id = p.id) AS track_count
+    FROM playlists p
+    JOIN users u ON u.id = p.user_id
+    WHERE p.id = ? AND u.is_suspended = 0
+  `, [playlistId]);
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+
+  const tracks = await allDb(`
+    SELECT pt.track_id, pt.sort_order, t.title AS track_title, t.duration, t.explicit,
+      t.youtube_url, r.id AS release_id, r.title AS release_title, r.cover_url AS release_cover,
+      a.name AS artist_name
+    FROM playlist_tracks pt
+    JOIN tracks t ON t.id = pt.track_id
+    JOIN releases r ON r.id = t.release_id
+    JOIN artists a ON a.id = r.artist_id
+    WHERE pt.playlist_id = ?
+    ORDER BY pt.sort_order ASC, pt.id ASC
+  `, [playlistId]);
+
+  return res.json({ playlist, tracks });
 });
 
 app.post('/api/playlists', requireAuth, async (req, res) => {
   const { name, description, cover_url } = req.body;
-  if (!name) return res.status(400).json({ error: 'Playlist name is required.' });
+  const playlistName = typeof name === 'string' ? name.trim() : '';
+  const playlistDescription = typeof description === 'string' ? description.trim() : '';
+  const playlistCover = typeof cover_url === 'string' ? cover_url.trim() : '';
+  if (!playlistName) return res.status(400).json({ error: 'Playlist name is required.' });
+  if (playlistName.length > 191 || playlistDescription.length > 2000 || !isValidImageUrl(playlistCover)) {
+    return res.status(400).json({ error: 'Playlist details are invalid or too long.' });
+  }
 
   const playlist = await runDb(
     `INSERT INTO playlists (user_id, name, description, cover_url) VALUES (?, ?, ?, ?)`,
-    [req.user.id, name, description || '', cover_url || '']
+    [req.user.id, playlistName, playlistDescription, playlistCover]
   );
   return res.status(201).json({ message: 'Playlist created.', playlistId: playlist.id });
 });
 
-app.post('/api/playlists/:playlistId/tracks', requireAuth, async (req, res) => {
-  const { track_id } = req.body;
-  if (!track_id) return res.status(400).json({ error: 'Track is required.' });
-
-  const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [req.params.playlistId, req.user.id]);
-  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
-
-  const existingTrack = await getDb('SELECT id FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?', [req.params.playlistId, track_id]);
-  if (existingTrack) {
-    return res.json({ added: false });
+app.put('/api/playlists/:playlistId', requireAuth, async (req, res) => {
+  const playlistId = parsePositiveId(req.params.playlistId);
+  if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
+  const { name, description, cover_url } = req.body;
+  const playlistName = typeof name === 'string' ? name.trim() : '';
+  const playlistDescription = typeof description === 'string' ? description.trim() : '';
+  const playlistCover = typeof cover_url === 'string' ? cover_url.trim() : '';
+  if (!playlistName) return res.status(400).json({ error: 'Playlist name is required.' });
+  if (playlistName.length > 191 || playlistDescription.length > 2000 || !isValidImageUrl(playlistCover)) {
+    return res.status(400).json({ error: 'Playlist details are invalid or too long.' });
   }
 
-  await runDb('INSERT INTO playlist_tracks (playlist_id, track_id) VALUES (?, ?)', [req.params.playlistId, track_id]);
-  return res.status(201).json({ added: true });
+  const result = await runDb(
+    'UPDATE playlists SET name = ?, description = ?, cover_url = ? WHERE id = ? AND user_id = ?',
+    [playlistName, playlistDescription, playlistCover, playlistId, req.user.id]
+  );
+  if (!result.changes) {
+    const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
+    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+  }
+  return res.json({ message: 'Playlist updated.' });
+});
+
+app.delete('/api/playlists/:playlistId', requireAuth, async (req, res) => {
+  const playlistId = parsePositiveId(req.params.playlistId);
+  if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [playlists] = await connection.execute(
+      'SELECT id FROM playlists WHERE id = ? AND user_id = ? FOR UPDATE',
+      [playlistId, req.user.id]
+    );
+    if (!playlists.length) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Playlist not found.' });
+    }
+    await connection.execute('DELETE FROM playlist_tracks WHERE playlist_id = ?', [playlistId]);
+    await connection.execute('DELETE FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return res.json({ message: 'Playlist deleted.' });
+});
+
+app.post('/api/playlists/:playlistId/tracks', requireAuth, async (req, res) => {
+  const playlistId = parsePositiveId(req.params.playlistId);
+  const trackId = parsePositiveId(req.body.track_id);
+  if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
+  if (!trackId) return res.status(400).json({ error: 'Track is required.' });
+
+  const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+  const track = await getDb('SELECT id FROM tracks WHERE id = ?', [trackId]);
+  if (!track) return res.status(404).json({ error: 'Track not found.' });
+
+  const sortRow = await getDb('SELECT COALESCE(MAX(sort_order) + 1, 0) AS next_order FROM playlist_tracks WHERE playlist_id = ?', [playlistId]);
+  const result = await runDb(
+    'INSERT IGNORE INTO playlist_tracks (playlist_id, track_id, sort_order) VALUES (?, ?, ?)',
+    [playlistId, trackId, Number(sortRow.next_order)]
+  );
+  return res.status(result.changes ? 201 : 200).json({ added: Boolean(result.changes) });
+});
+
+app.delete('/api/playlists/:playlistId/tracks/:trackId', requireAuth, async (req, res) => {
+  const playlistId = parsePositiveId(req.params.playlistId);
+  const trackId = parsePositiveId(req.params.trackId);
+  if (!playlistId || !trackId) return res.status(400).json({ error: 'Invalid playlist or track ID.' });
+
+  const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+  const result = await runDb('DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?', [playlistId, trackId]);
+  if (!result.changes) return res.status(404).json({ error: 'Track not found in this playlist.' });
+  return res.json({ message: 'Track removed from playlist.' });
+});
+
+app.put('/api/playlists/:playlistId/tracks/order', requireAuth, async (req, res) => {
+  const playlistId = parsePositiveId(req.params.playlistId);
+  const trackIds = req.body.track_ids;
+  if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
+  if (!Array.isArray(trackIds) || trackIds.some((id) => !parsePositiveId(id))) {
+    return res.status(400).json({ error: 'Track order is invalid.' });
+  }
+
+  const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+  const existingTracks = await allDb('SELECT track_id FROM playlist_tracks WHERE playlist_id = ?', [playlistId]);
+  const currentIds = existingTracks.map((row) => Number(row.track_id));
+  const requestedIds = trackIds.map(Number);
+  if (
+    requestedIds.length !== currentIds.length
+    || new Set(requestedIds).size !== requestedIds.length
+    || currentIds.some((id) => !requestedIds.includes(id))
+  ) {
+    return res.status(400).json({ error: 'Track order must include every playlist track exactly once.' });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    for (const [index, trackId] of requestedIds.entries()) {
+      await connection.execute(
+        'UPDATE playlist_tracks SET sort_order = ? WHERE playlist_id = ? AND track_id = ?',
+        [index, playlistId, trackId]
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return res.json({ message: 'Playlist order updated.' });
 });
 
 app.post('/api/favorites/:trackId', requireAuth, async (req, res) => {
