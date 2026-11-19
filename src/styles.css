@@ -1899,6 +1899,513 @@ textarea {
   font-size: 0.72rem;
 }
 
+.profile-page {
+  gap: 20px;
+}
+
+.profile-page .profile-hero {
+  min-height: 290px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 28px;
+}
+
+.profile-page .profile-hero::before {
+  background:
+    linear-gradient(90deg, rgba(6, 12, 20, 0.78), rgba(6, 12, 20, 0.18) 76%),
+    linear-gradient(0deg, rgba(6, 12, 20, 0.68), transparent 82%);
+}
+
+.profile-page .profile-copy {
+  justify-content: flex-start;
+  align-items: flex-end;
+  gap: 20px;
+  padding: clamp(20px, 4vw, 36px);
+}
+
+.profile-page .profile-copy img {
+  width: 96px;
+  height: 96px;
+  flex: 0 0 96px;
+  border: 3px solid rgba(255, 255, 255, 0.88);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.36);
+}
+
+.profile-page .profile-copy h1 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  line-height: 1;
+}
+
+.profile-page .profile-copy p {
+  margin: 7px 0 0;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.profile-page .profile-copy span {
+  display: -webkit-box;
+  max-width: 620px;
+  margin-top: 10px;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 0.9rem;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.profile-page .profile-toolbar {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--glass-soft);
+}
+
+.profile-page .profile-tabs {
+  gap: 6px;
+}
+
+.profile-page .profile-tabs button {
+  min-height: 42px;
+  padding: 0.65rem 1rem;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--muted);
+}
+
+.profile-page .profile-tabs button:hover {
+  background: var(--glass-soft);
+  color: var(--text);
+  transform: none;
+}
+
+.profile-page .profile-tabs button.is-active {
+  border-color: var(--line);
+  background: linear-gradient(135deg, rgba(155, 229, 199, 0.2), rgba(242, 213, 107, 0.1));
+  color: var(--text);
+}
+
+.profile-overview,
+.profile-section {
+  display: grid;
+  gap: 20px;
+}
+
+.profile-section-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.profile-section-heading .eyebrow,
+.profile-bio-card .eyebrow,
+.playlist-create-copy .eyebrow {
+  margin: 0 0 5px;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.profile-section-heading h2 {
+  margin: 0;
+  font-size: clamp(1.55rem, 3vw, 2rem);
+  letter-spacing: -0.04em;
+}
+
+.profile-section-heading p:not(.eyebrow) {
+  margin: 5px 0 0;
+  color: var(--muted);
+}
+
+.profile-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.profile-stat-card {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-height: 150px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 100% 0, rgba(155, 229, 199, 0.12), transparent 48%),
+    var(--glass);
+  box-shadow: var(--shadow-soft);
+  color: var(--text);
+  text-align: left;
+}
+
+.profile-stat-card:hover {
+  border-color: rgba(155, 229, 199, 0.34);
+  transform: translateY(-2px);
+}
+
+.profile-stat-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 11px;
+  background: rgba(155, 229, 199, 0.13);
+  color: var(--primary);
+  font-size: 1.1rem;
+}
+
+.profile-stat-card strong {
+  font-size: 1.8rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.profile-stat-card > span:last-child {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.profile-bio-card {
+  display: flex;
+  gap: 18px;
+  padding: clamp(20px, 4vw, 30px);
+  border-color: var(--line);
+  background:
+    radial-gradient(circle at 0 100%, rgba(119, 158, 255, 0.1), transparent 46%),
+    var(--glass);
+}
+
+.profile-bio-mark {
+  color: var(--primary);
+  font-size: 4.5rem;
+  font-weight: 800;
+  line-height: 0.85;
+  opacity: 0.75;
+}
+
+.profile-bio-card h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.profile-bio-card > div:last-child > p:last-child {
+  max-width: 760px;
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.profile-review-list {
+  display: grid;
+  gap: 14px;
+}
+
+.profile-review-card {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 18px;
+  padding: 16px;
+  border-color: var(--line);
+  background: var(--glass);
+}
+
+.profile-review-artwork img {
+  width: 104px;
+  height: 104px;
+  border-radius: 16px;
+  object-fit: cover;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+}
+
+.profile-review-copy {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.profile-review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-review-heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.profile-review-heading .eyebrow {
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.profile-review-title {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 750;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-review-title:hover {
+  color: var(--primary);
+}
+
+.profile-review-card .rating-badge {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+}
+
+.profile-review-copy > p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.profile-review-copy > small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.playlist-create-panel {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  align-items: center;
+  gap: 22px;
+  padding: clamp(20px, 4vw, 30px);
+  border-color: var(--line);
+  background:
+    radial-gradient(circle at 0 0, rgba(155, 229, 199, 0.16), transparent 42%),
+    var(--glass);
+}
+
+.playlist-create-art {
+  display: grid;
+  width: 84px;
+  height: 84px;
+  place-items: center;
+  border: 1px solid rgba(155, 229, 199, 0.3);
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(155, 229, 199, 0.2), rgba(118, 130, 255, 0.18));
+  color: var(--primary);
+  font-size: 2.4rem;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.playlist-create-copy h3 {
+  margin: 0;
+  font-size: 1.22rem;
+}
+
+.playlist-create-copy > p:not(.eyebrow) {
+  margin: 5px 0 16px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.playlist-create-form {
+  display: flex;
+  gap: 10px;
+}
+
+.playlist-create-form input {
+  min-width: 0;
+  border-color: var(--line);
+  background: var(--glass-soft);
+  box-shadow: none;
+}
+
+.playlist-create-form .primary-btn {
+  flex: 0 0 auto;
+}
+
+.playlist-form-error {
+  margin: 8px 0 0;
+  color: #ff8994;
+  font-size: 0.84rem;
+}
+
+.profile-playlist-grid,
+.profile-favorite-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.profile-playlist-card {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  padding: 14px;
+  border-color: var(--line);
+  background: var(--glass);
+}
+
+.profile-playlist-artwork {
+  position: relative;
+}
+
+.profile-playlist-artwork img {
+  width: 76px;
+  height: 76px;
+  border-radius: 14px;
+  object-fit: cover;
+}
+
+.profile-playlist-artwork > span {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 2px solid var(--glass-strong);
+  border-radius: 50%;
+  background: var(--primary);
+  color: #10251c;
+  font-size: 0.85rem;
+}
+
+.profile-playlist-copy {
+  min-width: 0;
+}
+
+.profile-playlist-copy h3,
+.profile-favorite-card h3 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.98rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-playlist-copy p {
+  display: -webkit-box;
+  margin: 4px 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.profile-playlist-copy small {
+  color: var(--primary);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.profile-favorite-card {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+  padding: 12px;
+  border-color: var(--line);
+  color: var(--text);
+  text-decoration: none;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.profile-favorite-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 107, 145, 0.35);
+  background: var(--glass-strong);
+}
+
+.profile-favorite-card > img {
+  width: 74px;
+  height: 74px;
+  border-radius: 13px;
+  object-fit: cover;
+}
+
+.profile-favorite-card > div {
+  min-width: 0;
+}
+
+.profile-favorite-heart {
+  display: block;
+  margin-bottom: 3px;
+  color: #ff6b91;
+  font-size: 0.78rem;
+}
+
+.profile-favorite-card p,
+.profile-favorite-card small {
+  display: block;
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-favorite-open {
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.profile-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  padding: 34px 20px;
+  border-color: var(--line);
+  background: var(--glass);
+  text-align: center;
+}
+
+.profile-empty-state > span {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 16px;
+  background: rgba(155, 229, 199, 0.12);
+  color: var(--primary);
+  font-size: 1.4rem;
+}
+
+.profile-empty-state h3,
+.profile-empty-state p {
+  margin: 0;
+}
+
+.profile-empty-state p {
+  max-width: 460px;
+  color: var(--muted);
+}
+
+.profile-empty-state .secondary-btn {
+  margin-top: 5px;
+}
+
 .form-grid {
   display: grid;
   gap: 12px;
@@ -3608,5 +4115,135 @@ textarea {
 
   .track-editor-main-grid .check-inline {
     grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .profile-page .profile-hero {
+    min-height: 250px;
+  }
+
+  .profile-page .profile-copy {
+    align-items: center;
+    gap: 14px;
+    padding: 20px;
+  }
+
+  .profile-page .profile-copy img {
+    width: 72px;
+    height: 72px;
+    flex-basis: 72px;
+  }
+
+  .profile-page .profile-copy h1 {
+    font-size: clamp(1.7rem, 8vw, 2.4rem);
+  }
+
+  .profile-page .profile-toolbar {
+    align-items: stretch;
+  }
+
+  .profile-page .profile-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex: 1;
+  }
+
+  .profile-page .profile-tabs button {
+    padding-inline: 8px;
+    font-size: 0.8rem;
+  }
+
+  .profile-page .profile-toolbar > .secondary-btn {
+    align-self: center;
+  }
+
+  .profile-stat-grid {
+    gap: 9px;
+  }
+
+  .profile-stat-card {
+    min-height: 126px;
+    padding: 13px;
+    border-radius: 17px;
+  }
+
+  .profile-stat-card strong {
+    font-size: 1.5rem;
+  }
+
+  .profile-stat-card > span:last-child {
+    font-size: 0.72rem;
+  }
+
+  .playlist-create-panel {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .playlist-create-art {
+    width: 56px;
+    height: 56px;
+    border-radius: 17px;
+    font-size: 1.8rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .profile-page .profile-toolbar {
+    flex-direction: column;
+  }
+
+  .profile-page .profile-toolbar > .secondary-btn {
+    align-self: stretch;
+  }
+
+  .profile-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-stat-card {
+    grid-template-columns: 36px 1fr;
+    grid-template-rows: auto auto;
+    align-items: center;
+    min-height: 0;
+  }
+
+  .profile-stat-icon {
+    grid-row: span 2;
+  }
+
+  .profile-stat-card > span:last-child {
+    grid-column: 2;
+  }
+
+  .profile-review-card {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .profile-review-artwork img {
+    width: 76px;
+    height: 76px;
+    border-radius: 12px;
+  }
+
+  .profile-review-card .rating-badge {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+  }
+
+  .profile-review-heading {
+    gap: 7px;
+  }
+
+  .profile-review-title {
+    font-size: 0.88rem;
+  }
+
+  .playlist-create-form {
+    flex-direction: column;
   }
 }
