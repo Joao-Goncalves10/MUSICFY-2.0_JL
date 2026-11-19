@@ -234,6 +234,7 @@ const normalizeUser = (user) => {
     banner_url: user.banner_url,
     bio: user.bio,
     role: user.role || 'USER',
+    is_suspended: Boolean(Number(user.is_suspended)),
     created_at: user.created_at,
   };
 };
@@ -261,7 +262,7 @@ const isFutureReleaseDate = (dateString) => {
 
 const sendToken = (user) => jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
 
-const requireAuth = (req, res, next) => {
+const requireAuth = async (req, res, next) => {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.substring(7) : null;
 
@@ -271,10 +272,28 @@ const requireAuth = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
+    const userId = parsePositiveId(decoded.id);
+    if (!userId) return res.status(401).json({ error: 'Invalid or expired token.' });
+
+    const account = await getDb('SELECT id, `role`, is_suspended FROM users WHERE id = ?', [userId]);
+    if (!account) return res.status(401).json({ error: 'Account no longer exists.' });
+    const isSuspended = Boolean(Number(account.is_suspended));
+    const notificationAccessAllowed = (
+      (req.method === 'GET' && req.path === '/api/notifications')
+      || (req.method === 'POST' && req.path === '/api/notifications/read-all')
+      || (req.method === 'POST' && /^\/api\/notifications\/\d+\/read$/.test(req.path))
+    );
+    if (isSuspended && !notificationAccessAllowed) {
+      return res.status(403).json({ error: 'Conta suspensa. Acesse apenas suas notificações.' });
+    }
+
+    req.user = { ...decoded, id: Number(account.id), role: account.role, is_suspended: isSuspended };
+    return next();
   } catch (error) {
-    return res.status(401).json({ error: 'Invalid or expired token.' });
+    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Invalid or expired token.' });
+    }
+    return next(error);
   }
 };
 
@@ -322,6 +341,15 @@ async function initializeDatabase() {
   `);
   if (!featuredDescriptionColumn) {
     await execDb('ALTER TABLE featured_releases ADD COLUMN description TEXT NULL');
+  }
+
+  const suspendedColumn = await getDb(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'is_suspended'
+  `);
+  if (!suspendedColumn) {
+    await execDb('ALTER TABLE users ADD COLUMN is_suspended TINYINT(1) NOT NULL DEFAULT 0');
   }
 
   const notificationColumns = [
@@ -901,8 +929,10 @@ app.get('/api/releases', async (req, res) => {
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
     LEFT JOIN (
-      SELECT release_id, ROUND(AVG(rating), 1) AS avg_rating, COUNT(*) AS review_count
-      FROM reviews
+      SELECT rv.release_id, ROUND(AVG(rv.rating), 1) AS avg_rating, COUNT(*) AS review_count
+      FROM reviews rv
+      JOIN users u ON u.id = rv.user_id
+      WHERE u.is_suspended = 0
       GROUP BY release_id
     ) rv ON rv.release_id = r.id
     ORDER BY r.release_date DESC
@@ -918,8 +948,10 @@ app.get('/api/releases/:id', async (req, res) => {
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
     LEFT JOIN (
-      SELECT release_id, ROUND(AVG(rating), 1) AS avg_rating, COUNT(*) AS review_count
-      FROM reviews
+      SELECT rv.release_id, ROUND(AVG(rv.rating), 1) AS avg_rating, COUNT(*) AS review_count
+      FROM reviews rv
+      JOIN users u ON u.id = rv.user_id
+      WHERE u.is_suspended = 0
       GROUP BY release_id
     ) rv ON rv.release_id = r.id
     WHERE r.id = ?
@@ -972,6 +1004,7 @@ app.get('/api/releases/:id', async (req, res) => {
     LEFT JOIN review_media rm ON rm.review_id = rv.id
     JOIN users u ON u.id = rv.user_id
     WHERE rv.release_id = ?
+      AND u.is_suspended = 0
     ORDER BY rv.created_at DESC
   `, [currentUserId || 0, req.params.id]);
 
@@ -1221,9 +1254,12 @@ app.post('/api/reviews', requireAuth, async (req, res) => {
 });
 
 app.put('/api/reviews/:id', requireAuth, async (req, res) => {
-  const review = await getDb('SELECT * FROM reviews WHERE id = ?', [req.params.id]);
+  const reviewId = parsePositiveId(req.params.id);
+  if (!reviewId) return res.status(400).json({ error: 'Review ID is invalid.' });
+
+  const review = await getDb('SELECT * FROM reviews WHERE id = ?', [reviewId]);
   if (!review) return res.status(404).json({ error: 'Review not found.' });
-  if (review.user_id !== req.user.id && req.user.role !== 'ADMIN') {
+  if (Number(review.user_id) !== Number(req.user.id) && req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'You can only update your own review.' });
   }
 
@@ -1246,20 +1282,58 @@ app.put('/api/reviews/:id', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Attach a valid GIF URL or upload a GIF file.' });
   }
 
-  await runDb(`UPDATE reviews SET rating = ?, review_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [parsedRating, reviewText, req.params.id]);
-  if (hasGifUrl) await saveReviewGif(req.params.id, reviewGif.url);
+  await runDb(`UPDATE reviews SET rating = ?, review_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [parsedRating, reviewText, reviewId]);
+  if (hasGifUrl) await saveReviewGif(reviewId, reviewGif.url);
   return res.json({ message: 'Review updated.' });
 });
 
 app.delete('/api/reviews/:id', requireAuth, async (req, res) => {
-  const review = await getDb('SELECT * FROM reviews WHERE id = ?', [req.params.id]);
+  const reviewId = parsePositiveId(req.params.id);
+  if (!reviewId) return res.status(400).json({ error: 'Review ID is invalid.' });
+
+  const review = await getDb(`
+    SELECT rv.id, rv.user_id, rv.release_id, r.title AS release_title
+    FROM reviews rv
+    JOIN releases r ON r.id = rv.release_id
+    WHERE rv.id = ?
+  `, [reviewId]);
   if (!review) return res.status(404).json({ error: 'Review not found.' });
-  if (review.user_id !== req.user.id && req.user.role !== 'ADMIN') {
+  if (Number(review.user_id) !== Number(req.user.id) && req.user.role !== 'ADMIN') {
     return res.status(403).json({ error: 'You can only delete your own review.' });
   }
 
-  await runDb('DELETE FROM review_likes WHERE review_id = ?', [req.params.id]);
-  await runDb('DELETE FROM reviews WHERE id = ?', [req.params.id]);
+  if (req.user.role === 'ADMIN' && Number(review.user_id) !== Number(req.user.id)) {
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+      await connection.execute('DELETE FROM review_likes WHERE review_id = ?', [reviewId]);
+      await connection.execute('DELETE FROM reviews WHERE id = ?', [reviewId]);
+      await connection.execute(
+        'INSERT INTO notifications (user_id, type, actor_user_id, message, link_url) VALUES (?, ?, ?, ?, ?)',
+        [
+          review.user_id,
+          'REVIEW_REMOVED',
+          req.user.id,
+          `Um administrador removeu sua resenha de ${review.release_title}.`,
+          `/releases/${review.release_id}`,
+        ]
+      );
+      await connection.commit();
+    } catch (error) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('Failed to roll back admin review removal:', rollbackError);
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
+    return res.json({ message: 'Review deleted and its author notified.' });
+  }
+
+  await runDb('DELETE FROM review_likes WHERE review_id = ?', [reviewId]);
+  await runDb('DELETE FROM reviews WHERE id = ?', [reviewId]);
   return res.json({ message: 'Review deleted.' });
 });
 
@@ -1325,7 +1399,11 @@ app.get('/api/notifications', requireAuth, async (req, res) => {
     `, [req.user.id]),
     getDb('SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND read_status = 0', [req.user.id]),
   ]);
-  return res.json({ notifications, unread_count: Number(unreadCount.count || 0) });
+  return res.json({
+    notifications,
+    unread_count: Number(unreadCount.count || 0),
+    account_suspended: Boolean(req.user.is_suspended),
+  });
 });
 
 app.post('/api/notifications/:id/read', requireAuth, async (req, res) => {
@@ -1361,6 +1439,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
       ) AS followed_by_user
     FROM users u
     WHERE u.id <> ?
+      AND u.is_suspended = 0
       AND (? = '' OR u.username LIKE ? OR u.full_name LIKE ?)
     ORDER BY u.created_at DESC, u.id DESC
     LIMIT 30
@@ -1374,7 +1453,7 @@ app.post('/api/users/:userId/follow', requireAuth, async (req, res) => {
   if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
   if (userId === Number(req.user.id)) return res.status(400).json({ error: 'You cannot follow your own profile.' });
 
-  const targetUser = await getDb('SELECT id FROM users WHERE id = ?', [userId]);
+  const targetUser = await getDb('SELECT id FROM users WHERE id = ? AND is_suspended = 0', [userId]);
   if (!targetUser) return res.status(404).json({ error: 'User not found.' });
 
   const result = await runDb('INSERT IGNORE INTO user_follows (follower_id, followed_id) VALUES (?, ?)', [req.user.id, userId]);
@@ -1397,7 +1476,7 @@ app.delete('/api/users/:userId/follow', requireAuth, async (req, res) => {
   if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
   if (userId === Number(req.user.id)) return res.status(400).json({ error: 'You cannot unfollow your own profile.' });
 
-  const targetUser = await getDb('SELECT id FROM users WHERE id = ?', [userId]);
+  const targetUser = await getDb('SELECT id FROM users WHERE id = ? AND is_suspended = 0', [userId]);
   if (!targetUser) return res.status(404).json({ error: 'User not found.' });
   await runDb('DELETE FROM user_follows WHERE follower_id = ? AND followed_id = ?', [req.user.id, userId]);
   return res.json({ following: false });
@@ -1406,7 +1485,7 @@ app.delete('/api/users/:userId/follow', requireAuth, async (req, res) => {
 const getUserRelationshipList = async (req, res, relationship) => {
   const userId = parsePositiveId(req.params.userId);
   if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
-  const profileUser = await getDb('SELECT id FROM users WHERE id = ?', [userId]);
+  const profileUser = await getDb('SELECT id FROM users WHERE id = ? AND is_suspended = 0', [userId]);
   if (!profileUser) return res.status(404).json({ error: 'User not found.' });
 
   const followerColumn = relationship === 'followers' ? 'uf.followed_id' : 'uf.follower_id';
@@ -1420,6 +1499,7 @@ const getUserRelationshipList = async (req, res, relationship) => {
     FROM user_follows uf
     JOIN users u ON u.id = ${selectedColumn}
     WHERE ${followerColumn} = ?
+      AND u.is_suspended = 0
     ORDER BY uf.created_at DESC
     LIMIT 100
   `, [req.user?.id || 0, userId]);
@@ -1433,7 +1513,7 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
   const userId = parsePositiveId(req.params.userId);
   if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
   const user = await getDb(
-    'SELECT id, username, full_name, avatar_url, banner_url, bio, created_at FROM users WHERE id = ?',
+    'SELECT id, username, full_name, avatar_url, banner_url, bio, created_at FROM users WHERE id = ? AND is_suspended = 0',
     [userId]
   );
   if (!user) return res.status(404).json({ error: 'User not found.' });
@@ -1535,6 +1615,7 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
     JOIN users u ON u.id = rv.user_id
     JOIN releases r ON r.id = rv.release_id
     JOIN artists a ON a.id = r.artist_id
+    WHERE u.is_suspended = 0
     ORDER BY rv.created_at DESC
     LIMIT 6
   `, [req.user?.id || 0]);
@@ -1565,7 +1646,7 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
   `);
 
   const personalizedFilter = req.user ? `
-    WHERE (
+    WHERE u.is_suspended = 0 AND (
       rv.user_id = ?
       OR EXISTS (
         SELECT 1 FROM user_follows uf
@@ -1581,7 +1662,7 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
         WHERE f.user_id = ? AND t.release_id = rv.release_id
       )
     )
-  ` : '';
+  ` : 'WHERE u.is_suspended = 0';
   const feedParams = req.user
     ? [req.user.id, req.user.id, req.user.id, req.user.id, req.user.id]
     : [0];
@@ -1745,6 +1826,129 @@ app.delete('/api/admin/featured/:featuredId', requireAuth, requireAdmin, async (
 
   await runDb('DELETE FROM featured_releases WHERE id = ?', [featuredId]);
   return res.json({ message: 'Destaque removido do carrossel.' });
+});
+
+app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
+  const users = await allDb(`
+    SELECT id, username, full_name, email, is_suspended, created_at
+    FROM users
+    WHERE \`role\` = 'USER'
+    ORDER BY is_suspended ASC, created_at DESC, id DESC
+    LIMIT 200
+  `);
+  return res.json(users.map((user) => ({ ...user, is_suspended: Boolean(Number(user.is_suspended)) })));
+});
+
+app.delete('/api/admin/users/:userId', requireAuth, requireAdmin, async (req, res) => {
+  const userId = parsePositiveId(req.params.userId);
+  if (!userId) return res.status(400).json({ error: 'User ID is invalid.' });
+  if (userId === Number(req.user.id)) {
+    return res.status(400).json({ error: 'Administrators cannot suspend their own account.' });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      'SELECT id, `role`, is_suspended FROM users WHERE id = ? FOR UPDATE',
+      [userId]
+    );
+    const target = rows[0];
+    if (!target) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (target.role !== 'USER') {
+      await connection.rollback();
+      return res.status(403).json({ error: 'Only standard user profiles can be suspended.' });
+    }
+    if (Number(target.is_suspended)) {
+      await connection.rollback();
+      return res.json({ is_suspended: true, changed: false });
+    }
+
+    await connection.execute('UPDATE users SET is_suspended = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [userId]);
+    await connection.execute(
+      'INSERT INTO notifications (user_id, type, actor_user_id, message) VALUES (?, ?, ?, ?)',
+      [
+        userId,
+        'ACCOUNT_SUSPENDED',
+        req.user.id,
+        'Seu perfil foi ocultado pela equipe administrativa. Você pode acessar apenas suas notificações.',
+      ]
+    );
+    await connection.commit();
+    return res.json({ is_suspended: true, changed: true });
+  } catch (error) {
+    try {
+      await connection.rollback();
+    } catch (rollbackError) {
+      console.error('Failed to roll back profile suspension:', rollbackError);
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
+
+app.post('/api/admin/users/:userId/restore', requireAuth, requireAdmin, async (req, res) => {
+  const userId = parsePositiveId(req.params.userId);
+  if (!userId) return res.status(400).json({ error: 'User ID is invalid.' });
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      'SELECT id, `role`, is_suspended FROM users WHERE id = ? FOR UPDATE',
+      [userId]
+    );
+    const target = rows[0];
+    if (!target) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (target.role !== 'USER') {
+      await connection.rollback();
+      return res.status(403).json({ error: 'Only standard user profiles can be restored.' });
+    }
+    if (!Number(target.is_suspended)) {
+      await connection.rollback();
+      return res.json({ is_suspended: false, changed: false });
+    }
+
+    await connection.execute('UPDATE users SET is_suspended = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [userId]);
+    await connection.execute(
+      'INSERT INTO notifications (user_id, type, actor_user_id, message) VALUES (?, ?, ?, ?)',
+      [userId, 'ACCOUNT_RESTORED', req.user.id, 'Seu perfil foi reativado pela equipe administrativa.']
+    );
+    await connection.commit();
+    return res.json({ is_suspended: false, changed: true });
+  } catch (error) {
+    try {
+      await connection.rollback();
+    } catch (rollbackError) {
+      console.error('Failed to roll back profile restoration:', rollbackError);
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
+
+app.get('/api/admin/reviews', requireAuth, requireAdmin, async (req, res) => {
+  const reviews = await allDb(`
+    SELECT rv.id, rv.user_id, rv.rating, rv.review_text, rv.created_at,
+      rm.gif_url, u.username, u.full_name, r.title AS release_title,
+      r.cover_url AS release_cover, a.name AS artist_name
+    FROM reviews rv
+    JOIN users u ON u.id = rv.user_id
+    JOIN releases r ON r.id = rv.release_id
+    JOIN artists a ON a.id = r.artist_id
+    LEFT JOIN review_media rm ON rm.review_id = rv.id
+    ORDER BY rv.created_at DESC, rv.id DESC
+    LIMIT 200
+  `);
+  return res.json(reviews);
 });
 
 app.get('/api/dashboard', requireAuth, requireAdmin, async (req, res) => {

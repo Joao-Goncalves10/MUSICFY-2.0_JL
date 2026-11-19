@@ -18,13 +18,13 @@ This combination keeps the project lightweight while still providing a real pers
 - Role-based access control with ADMIN and USER roles
 - Artist and release catalog
 - Tracklists and media links
-- Review publishing and rating system
+- Review publishing and rating system; authors can edit or delete their own reviews from the home feed, release page, or profile
 - Review likes with live counts on release pages, profiles, and the social feed
 - Review text is limited to 300 characters and may include one uploaded GIF
 - Artist detail pages and release detail pages
 - Release and artist detail panels use blurred artwork as adaptive color gradients; animated GIF colors cross-fade slowly
 - Personalized home feed with reviews from followed users and releases saved by the user
-- Admin-managed home carousel for multiple releases, with controls to create, edit, reorder, and remove banners and descriptions
+- Admin-managed home carousel for multiple releases, with controls to create, edit, reorder, and remove banners and descriptions; slides rotate automatically every five seconds and can be paused
 - Home sidebar showing active releases from the previous two months
 - Public user profiles with profile discovery, follow/unfollow, and follower/following lists
 - Artist follows and in-app notifications for new followers, review likes, and new releases from followed artists or pre-saved releases
@@ -32,6 +32,7 @@ This combination keeps the project lightweight while still providing a real pers
 - Playlist and favorites support
 - Pre-save flow and notification model
 - Admin dashboard for creating and editing artists and releases, with edit shortcuts on artist and release detail pages
+- Admin tools organized into catalog, homepage highlights, and moderation sections; profile suspensions are reversible and users can access their in-app notices
 - Responsive Frutiger Aero UI
 
 ## Local setup
@@ -99,6 +100,8 @@ The TiDB schema is defined in `server/schema.sql` using MySQL-compatible types a
 The relational catalog links artists to releases and releases (albums, EPs, or singles) to tracks. Artist, release, and track URLs are stored in `artist_links`, `release_links`, and `track_links`. Lyrics and translations are stored in `track_texts`, keyed by track, content type, and language code; use `und` when the language is unknown. The existing local SQLite database is not uploaded or copied to TiDB automatically; it remains untouched.
 
 In the admin panel, create an artist before creating a release, then select that artist from the catalog list. The API validates the selected artist ID against TiDB to prevent invalid release-to-artist links.
+
+The admin panel separates catalog management, homepage carousel highlights, and moderation. Moderators can hide a standard user profile without deleting the account or its data, restore it later, and remove reviews. The affected user receives an in-app notification; while a profile is suspended, its owner can sign in only to read and acknowledge notifications.
 
 ### Importing a local SQLite catalog
 
