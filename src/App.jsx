@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import adelaProfileImage from './img/artist/adéla/icons/adela_profile.jpg';
@@ -204,7 +204,7 @@ function ProtectedRoute({ admin = false, children }) {
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('musicfy-theme') === 'light' ? 'light' : 'dark');
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem('musicfy-theme', theme);
   }, [theme]);
@@ -2259,30 +2259,76 @@ function AuthPage() {
 
   return (
     <div className="auth-wrap">
+      <section className="auth-intro">
+        <div className="auth-intro-brand">
+          <span className="auth-brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
+          </span>
+          <span><strong>MUSICFY</strong><small>O SOM DA SUA COMUNIDADE</small></span>
+        </div>
+
+        <div className="auth-intro-copy">
+          <p className="auth-eyebrow">OUÇA. SINTA. COMPARTILHE.</p>
+          <h1>Seu próximo <span>álbum favorito</span> está por aqui.</h1>
+          <p>Encontre lançamentos, descubra artistas e compartilhe o que a música faz você sentir.</p>
+        </div>
+
+        <div className="auth-community-card">
+          <div className="auth-waveform" aria-hidden="true">{Array.from({ length: 19 }, (_, index) => <i key={index} />)}</div>
+          <div><strong>Mais do que dar o play.</strong><span>Uma comunidade feita para quem vive música.</span></div>
+          <span className="auth-community-icon" aria-hidden="true">+</span>
+        </div>
+      </section>
+
       <div className="auth-box glass-panel">
-        <div className="auth-toggle">
-          <button className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')} type="button">Entrar</button>
-          <button className={mode === 'register' ? 'active' : ''} onClick={() => setMode('register')} type="button">Cadastrar</button>
+        <div className="auth-box-heading">
+          <p className="auth-eyebrow">{mode === 'login' ? 'BOM TER VOCÊ DE VOLTA' : 'ENTRE PARA A COMUNIDADE'}</p>
+          <h2>{mode === 'login' ? 'A música continua.' : 'Sua jornada começa aqui.'}</h2>
+          <p>{mode === 'login' ? 'Entre na sua conta para continuar.' : 'Crie sua conta e encontre seu próximo som favorito.'}</p>
+        </div>
+
+        <div className="auth-toggle" role="group" aria-label="Tipo de acesso">
+          <button aria-pressed={mode === 'login'} className={mode === 'login' ? 'active' : ''} onClick={() => { setMode('login'); setError(''); }} type="button">Entrar</button>
+          <button aria-pressed={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError(''); }} type="button">Criar conta</button>
         </div>
 
         <form onSubmit={submit} className="auth-form">
           {mode === 'register' && (
             <>
-              <input placeholder="Nome completo" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-              <input type="email" placeholder="E-mail" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              <label className="auth-field">Nome completo
+                <input autoComplete="name" placeholder="Como podemos chamar você?" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
+              </label>
+              <label className="auth-field">E-mail
+                <input type="email" autoComplete="email" placeholder="voce@email.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+              </label>
             </>
           )}
 
-          <input placeholder="Nome de usuário" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
-          <input type="password" placeholder="Senha" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <label className="auth-field">Nome de usuário
+            <input autoComplete="username" placeholder="Seu nome de usuário" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
+          </label>
+          <label className="auth-field">Senha
+            <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Sua senha" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+          </label>
 
           {mode === 'register' && (
-            <input type="password" placeholder="Confirmar senha" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} />
+            <label className="auth-field">Confirmar senha
+              <input type="password" autoComplete="new-password" placeholder="Digite a senha novamente" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} required />
+            </label>
           )}
 
-          {error && <p className="error-text">{error}</p>}
-          <button className="primary-btn" type="submit">{mode === 'login' ? 'Entrar no Musicfy' : 'Criar conta'}</button>
+          {error && <p className="error-text" role="alert">{error}</p>}
+          <button className="primary-btn auth-submit" type="submit">
+            {mode === 'login' ? 'Entrar no Musicfy' : 'Criar minha conta'}
+            <span aria-hidden="true">→</span>
+          </button>
         </form>
+
+        <p className="auth-privacy-note">Sua próxima descoberta musical está a poucos segundos.</p>
       </div>
     </div>
   );
