@@ -11,6 +11,14 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
 });
 
+const MUSIC_GENRES = ['Pop', 'K-pop', 'R&B', 'Hip-Hop', 'Rap', 'Rock', 'Indie', 'Alternative', 'Electronic', 'Funk', 'MPB', 'Jazz', 'Classical', 'Country'];
+
+const normalizeGenre = (genre) => String(genre || '')
+  .trim()
+  .toLocaleLowerCase()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '');
+
 const getArtistFallbackImage = (artist) => {
   const name = String(artist?.name || '').trim().toLocaleLowerCase();
   if (name === 'adéla') return adelaProfileImage;
@@ -162,7 +170,7 @@ function AuthProvider({ children }) {
     return raw ? JSON.parse(raw) : null;
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (token) {
       localStorage.setItem('musicfy-token', token);
       api.defaults.headers.common.Authorization = `Bearer ${token}`;
@@ -394,13 +402,25 @@ function Navbar({ theme, onToggleTheme }) {
             <NotificationCenter />
             {user.is_suspended ? (
               <span className="account-link">
-                <span className="account-avatar">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>
-                <span className="account-name">{user.full_name || user.username}</span>
+                <img
+                  className="account-avatar"
+                  src={user.avatar_url || imagePlaceholder}
+                  onError={(event) => handleImageError(event, imagePlaceholder)}
+                  alt={user.full_name || user.username || 'Foto do perfil'}
+                />
               </span>
             ) : (
-              <NavLink to={`/profile/${user.id}`} className="account-link">
-                <span className="account-avatar">{(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</span>
-                <span className="account-name">{user.full_name || user.username}</span>
+              <NavLink
+                to={`/profile/${user.id}`}
+                className="account-link"
+                title="Abrir perfil"
+              >
+                <img
+                  className="account-avatar"
+                  src={user.avatar_url || imagePlaceholder}
+                  onError={(event) => handleImageError(event, imagePlaceholder)}
+                  alt={user.full_name || user.username || 'Foto do perfil'}
+                />
               </NavLink>
             )}
             <button className="logout-btn" onClick={logout}>Sair</button>
@@ -897,34 +917,171 @@ function HomePage() {
 
 function ExplorePage() {
   const [data, setData] = useState({ featured: [], recent: [], artists: [], reviews: [] });
+  const [selectedGenre, setSelectedGenre] = useState('Todos');
+  const [canScrollGenres, setCanScrollGenres] = useState(false);
+  const genreTrackRef = useRef(null);
+  const genreDragRef = useRef({ startX: 0, startScrollLeft: 0, isDragging: false, didDrag: false });
+  const genres = ['Todos', ...MUSIC_GENRES];
 
   useEffect(() => {
     api.get('/explore').then((res) => setData(res.data)).catch(console.error);
   }, []);
 
-  return (
-    <div className="content-stack">
-      <div className="section-header">
-        <h2>Explorar</h2>
-      </div>
-      <div className="genre-row">
-        {['Pop', 'K-pop', 'R&B', 'Hip-Hop', 'Rap', 'Rock', 'Indie', 'Alternative', 'Electronic', 'Funk', 'MPB', 'Jazz', 'Classical', 'Country'].map((genre) => (
-          <span className="genre-pill" key={genre}>{genre}</span>
-        ))}
-      </div>
+  useEffect(() => {
+    const track = genreTrackRef.current;
+    if (!track) return undefined;
 
-      <section className="subsection">
-        <h3>Escolhas em destaque</h3>
-        <div className="card-grid">
-          {data.featured.map((release) => <ReleaseCard key={release.id} release={release} />)}
+    const updateScrollState = () => {
+      setCanScrollGenres(track.scrollWidth > track.clientWidth + 1);
+    };
+
+    updateScrollState();
+    window.addEventListener('resize', updateScrollState);
+    return () => window.removeEventListener('resize', updateScrollState);
+  }, []);
+
+  const filterReleases = (releases) => {
+    if (selectedGenre === 'Todos') return releases;
+    const selected = normalizeGenre(selectedGenre);
+
+    return releases.filter((release) => (
+      String(release.genre || '')
+        .split(/[,/|]/)
+        .some((genre) => normalizeGenre(genre) === selected)
+    ));
+  };
+
+  const featuredReleases = filterReleases(data.featured);
+  const recentReleases = filterReleases(data.recent);
+
+  const scrollGenres = (direction) => {
+    const track = genreTrackRef.current;
+    if (!track) return;
+    track.scrollBy({ left: direction * Math.max(track.clientWidth * 0.75, 220), behavior: 'smooth' });
+  };
+
+  const handleGenrePointerDown = (event) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    genreDragRef.current = {
+      startX: event.clientX,
+      startScrollLeft: genreTrackRef.current.scrollLeft,
+      isDragging: true,
+      didDrag: false,
+    };
+  };
+
+  const handleGenrePointerMove = (event) => {
+    const drag = genreDragRef.current;
+    if (!drag.isDragging) return;
+    const distance = event.clientX - drag.startX;
+    if (Math.abs(distance) > 5) drag.didDrag = true;
+    if (drag.didDrag) {
+      event.preventDefault();
+      genreTrackRef.current.scrollLeft = drag.startScrollLeft - distance;
+    }
+  };
+
+  const stopGenreDrag = () => {
+    genreDragRef.current.isDragging = false;
+    if (genreDragRef.current.didDrag) {
+      window.setTimeout(() => {
+        genreDragRef.current.didDrag = false;
+      }, 0);
+    }
+  };
+
+  return (
+    <div className="content-stack explore-page">
+      <header className="explore-hero">
+        <div className="explore-hero-copy">
+          <p className="eyebrow">Descubra o que vem a seguir</p>
+          <h1>Explore novos <span>universos</span></h1>
+          <p>Encontre lançamentos, artistas e sons que combinam com o seu momento.</p>
+        </div>
+        <span className="explore-hero-mark" aria-hidden="true">♫</span>
+      </header>
+
+      <section className="explore-genre-section" aria-label="Explorar por gênero">
+        <div className="explore-section-heading">
+          <div>
+            <p className="eyebrow">Escolha seu clima</p>
+            <h2>Explore por gênero</h2>
+          </div>
+          {canScrollGenres && (
+            <div className="genre-controls">
+              <button type="button" aria-label="Ver gêneros anteriores" onClick={() => scrollGenres(-1)}>‹</button>
+              <button type="button" aria-label="Ver mais gêneros" onClick={() => scrollGenres(1)}>›</button>
+            </div>
+          )}
+        </div>
+        <div className="genre-carousel">
+          <div
+            ref={genreTrackRef}
+            className="genre-track"
+            onPointerDown={handleGenrePointerDown}
+            onPointerMove={handleGenrePointerMove}
+            onPointerUp={stopGenreDrag}
+            onPointerCancel={stopGenreDrag}
+            onPointerLeave={() => {
+              if (!genreDragRef.current.isDragging) return;
+              stopGenreDrag();
+              genreDragRef.current.didDrag = false;
+            }}
+            onClickCapture={(event) => {
+              if (!genreDragRef.current.didDrag) return;
+              event.preventDefault();
+              event.stopPropagation();
+              genreDragRef.current.didDrag = false;
+            }}
+            onScroll={() => {
+              const track = genreTrackRef.current;
+              setCanScrollGenres(track.scrollWidth > track.clientWidth + 1);
+            }}
+          >
+            {genres.map((genre) => (
+              <button
+                type="button"
+                className={`genre-pill${selectedGenre === genre ? ' is-selected' : ''}`}
+                key={genre}
+                aria-pressed={selectedGenre === genre}
+                onClick={() => setSelectedGenre(genre)}
+              >
+                {genre}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section className="subsection">
-        <h3>Recentes</h3>
-        <div className="card-grid">
-          {data.recent.map((release) => <ReleaseCard key={release.id} release={release} />)}
+      <section className="subsection explore-release-section">
+        <div className="explore-section-heading">
+          <div>
+            <p className="eyebrow">Seleção Musicfy</p>
+            <h2>Escolhas em destaque</h2>
+          </div>
+          {selectedGenre !== 'Todos' && <span className="explore-filter-label">{selectedGenre}</span>}
         </div>
+        <div className="card-grid">
+          {featuredReleases.map((release) => <ReleaseCard key={release.id} release={release} />)}
+        </div>
+        {featuredReleases.length === 0 && (
+          <p className="explore-empty-state">Nenhum destaque encontrado neste gênero por enquanto.</p>
+        )}
+      </section>
+
+      <section className="subsection explore-release-section">
+        <div className="explore-section-heading">
+          <div>
+            <p className="eyebrow">Acabou de chegar</p>
+            <h2>Recentes</h2>
+          </div>
+        </div>
+        <div className="card-grid">
+          {recentReleases.map((release) => <ReleaseCard key={release.id} release={release} />)}
+        </div>
+        {recentReleases.length === 0 && (
+          <p className="explore-empty-state">Nenhum lançamento recente encontrado neste gênero.</p>
+        )}
       </section>
     </div>
   );
@@ -3164,6 +3321,21 @@ function AdminPage() {
     }));
   };
 
+  const toggleReleaseGenre = (genre) => {
+    setReleaseForm((current) => {
+      const currentGenres = String(current.genre || '')
+        .split(/[,/|]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const selected = currentGenres.some((item) => normalizeGenre(item) === normalizeGenre(genre));
+      const nextGenres = selected
+        ? currentGenres.filter((item) => normalizeGenre(item) !== normalizeGenre(genre))
+        : [...currentGenres, genre];
+
+      return { ...current, genre: nextGenres.join(', ') };
+    });
+  };
+
   const addTrackRow = () => {
     setReleaseForm((prev) => ({
       ...prev,
@@ -3469,6 +3641,9 @@ function AdminPage() {
     !moderationSearch
     || `${item.full_name || ''} ${item.username || ''} ${item.release_title || ''} ${item.artist_name || ''} ${item.review_text || ''}`.toLocaleLowerCase().includes(moderationSearch)
   ));
+  const selectedReleaseGenres = String(releaseForm.genre || '')
+    .split(/[,/|]/)
+    .map(normalizeGenre);
 
   return (
     <div className="content-stack">
@@ -3606,7 +3781,33 @@ function AdminPage() {
             <option>Single</option>
           </select>
           <input type="date" value={releaseForm.release_date} onChange={(e) => setReleaseForm({ ...releaseForm, release_date: e.target.value })} />
-          <input placeholder="Gênero" value={releaseForm.genre} onChange={(e) => setReleaseForm({ ...releaseForm, genre: e.target.value })} />
+          <div className="release-genre-picker">
+            <div className="release-genre-heading">
+              <strong>Gêneros musicais</strong>
+              <span>Selecione um ou mais</span>
+            </div>
+            <div className="release-genre-tags" role="group" aria-label="Gêneros musicais">
+              {MUSIC_GENRES.map((genre) => (
+                <button
+                  type="button"
+                  className={`release-genre-tag${selectedReleaseGenres.includes(normalizeGenre(genre)) ? ' is-selected' : ''}`}
+                  key={genre}
+                  aria-pressed={selectedReleaseGenres.includes(normalizeGenre(genre))}
+                  onClick={() => toggleReleaseGenre(genre)}
+                >
+                  {genre}
+                </button>
+              ))}
+            </div>
+            <label className="release-genre-custom">
+              <span>Outros gêneros (opcional)</span>
+              <input
+                placeholder="Digite gêneros separados por vírgula"
+                value={releaseForm.genre}
+                onChange={(e) => setReleaseForm({ ...releaseForm, genre: e.target.value })}
+              />
+            </label>
+          </div>
           <textarea placeholder="Descrição" value={releaseForm.description} onChange={(e) => setReleaseForm({ ...releaseForm, description: e.target.value })} />
 
           <div className="track-editor">
