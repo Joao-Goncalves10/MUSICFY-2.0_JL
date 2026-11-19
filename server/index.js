@@ -1394,14 +1394,13 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
 
 app.get('/api/home-feed', optionalAuth, async (req, res) => {
   const featuredSlides = await allDb(`
-    SELECT fr.id, fr.release_id, fr.banner_url, fr.description, fr.sort_order,
+    SELECT fr.id, fr.release_id,
+      COALESCE(NULLIF(fr.banner_url, ''), r.cover_url, '') AS banner_url,
+      COALESCE(fr.description, '') AS description, fr.sort_order,
       r.title, r.cover_url, r.release_type, a.name AS artist_name
     FROM featured_releases fr
     JOIN releases r ON r.id = fr.release_id
     JOIN artists a ON a.id = r.artist_id
-    WHERE r.status = 'ACTIVE'
-      AND TRIM(COALESCE(fr.banner_url, '')) <> ''
-      AND TRIM(COALESCE(fr.description, '')) <> ''
     ORDER BY fr.sort_order ASC, fr.id ASC
   `);
 
