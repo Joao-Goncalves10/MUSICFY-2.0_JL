@@ -259,6 +259,8 @@ CREATE TABLE IF NOT EXISTS featured_releases (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   release_id BIGINT UNSIGNED NOT NULL,
   sort_order INT NOT NULL,
+  banner_url VARCHAR(512) NULL,
+  description TEXT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_featured_releases_release (release_id),
   CONSTRAINT fk_featured_releases_release FOREIGN KEY (release_id) REFERENCES releases(id)
