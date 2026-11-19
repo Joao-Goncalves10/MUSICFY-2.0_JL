@@ -19,9 +19,9 @@ This combination keeps the project lightweight while still providing a real pers
 - Artist and release catalog
 - Tracklists and media links
 - Review publishing and rating system
-- Review likes with live counts on release pages, profiles, and the community feed
+- Review likes with live counts on release pages, profiles, and the social feed
 - Artist detail pages and release detail pages
-- Social feed with recent community reviews
+- Social feed with recent user reviews
 - Public user profiles with profile discovery, follow/unfollow, and follower/following lists
 - User profile page with reviews, playlists, and favorite tracks
 - Playlist and favorites support
@@ -113,7 +113,7 @@ The command imports artists, genres, artist-genre relationships, releases, and t
 
 User passwords are stored as bcrypt hashes. Reviews and their likes use `reviews` and `review_likes`; track favorites use `favorites`. Playlists, playlist tracks, pre-saves, notifications, and featured releases are persisted in their corresponding tables. A new database is seeded with roles, the configured admin account, a demo user, artists, releases, and tracks.
 
-User follow relationships are stored in `user_follows`. The authenticated community page searches public profiles; following and review likes require a signed-in user. Public profile pages include follower/following lists and social counts.
+User follow relationships are stored in `user_follows`. The authenticated social page searches public profiles; following and review likes require a signed-in user. Public profile pages include follower/following lists and social counts.
 
 Additional content endpoints (writes require an admin token):
 
