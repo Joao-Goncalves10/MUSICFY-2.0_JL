@@ -352,6 +352,7 @@ select:hover {
 .primary-btn,
 .secondary-btn,
 .ghost-btn,
+.danger-btn,
 .close-btn,
 .profile-tabs button,
 .auth-toggle button {
@@ -381,6 +382,7 @@ select:hover {
 
 .secondary-btn,
 .ghost-btn,
+.danger-btn,
 .close-btn,
 .profile-tabs button,
 .auth-toggle button {
@@ -392,6 +394,7 @@ select:hover {
 .secondary-btn:hover,
 .logout-btn:hover,
 .ghost-btn:hover,
+.danger-btn:hover,
 .close-btn:hover,
 .profile-tabs button:hover,
 .auth-toggle button:hover {
@@ -1326,6 +1329,23 @@ select:hover {
 .secondary-btn {
   background: rgba(255,255,255,0.08);
   color: var(--text);
+}
+
+.danger-btn {
+  background: rgba(228, 76, 96, 0.14);
+  border-color: rgba(255, 115, 132, 0.4);
+  color: #ffb7c0;
+  box-shadow: none;
+}
+
+.danger-btn:hover:not(:disabled) {
+  background: rgba(228, 76, 96, 0.24);
+  border-color: rgba(255, 115, 132, 0.65);
+}
+
+.danger-btn:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .lyrics-panel {
@@ -3278,6 +3298,18 @@ textarea {
   .featured-hero-card {
     aspect-ratio: 2.2 / 1;
     min-height: 270px;
+  }
+}
+
+@media (min-width: 761px) {
+  .side-dock-link {
+    padding-right: 4px;
+    padding-left: 4px;
+  }
+
+  .side-dock-link span {
+    white-space: nowrap;
+    font-size: 0.62rem;
   }
 }
 
