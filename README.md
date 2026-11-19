@@ -20,9 +20,11 @@ This combination keeps the project lightweight while still providing a real pers
 - Tracklists and media links
 - Review publishing and rating system
 - Review likes with live counts on release pages, profiles, and the social feed
+- Review text is limited to 300 characters and may include one uploaded GIF
 - Artist detail pages and release detail pages
 - Release and artist detail panels use blurred artwork as adaptive color gradients; animated GIF colors cross-fade slowly
-- Social feed with recent user reviews
+- Personalized home feed with reviews from followed users and releases saved by the user
+- Home sidebar showing active releases from the previous two months
 - Public user profiles with profile discovery, follow/unfollow, and follower/following lists
 - User profile page with reviews, playlists, and favorite tracks
 - Playlist and favorites support
@@ -114,7 +116,7 @@ The command imports artists, genres, artist-genre relationships, releases, and t
 
 User passwords are stored as bcrypt hashes. Reviews and their likes use `reviews` and `review_likes`; track favorites use `favorites`. Playlists, playlist tracks, pre-saves, notifications, and featured releases are persisted in their corresponding tables. A new database is seeded with roles, the configured admin account, a demo user, artists, releases, and tracks.
 
-User follow relationships are stored in `user_follows`. The authenticated social page searches public profiles; following and review likes require a signed-in user. Public profile pages include follower/following lists and social counts.
+User follow relationships are stored in `user_follows`. The authenticated social page searches public profiles; following and review likes require a signed-in user. Public profile pages include follower/following lists and social counts. Review GIFs are stored in `review_media`.
 
 Additional content endpoints (writes require an admin token):
 
@@ -132,6 +134,7 @@ Social endpoints:
 - `GET /api/users/:userId/followers` and `GET /api/users/:userId/following` — list profile connections
 - `GET /api/profile/:userId` — read a public profile, including reviews, playlists, favorites, and follow state
 - `POST /api/reviews/:id/like` — like or unlike a review (authentication required)
+- `GET /api/home-feed` — return a personalized review feed and releases from the last two months
 
 ## Build for production
 
@@ -160,7 +163,9 @@ macOS/Linux: `NODE_ENV=production npm run start`
 - `GET /api/artists/:id`
 - `GET /api/releases`
 - `GET /api/releases/:id`
+- `GET /api/home-feed`
 - `POST /api/reviews`
+- `PUT /api/reviews/:id`
 - `POST /api/reviews/:id/like`
 - `GET /api/profile/:userId`
 - `GET /api/explore`

@@ -59,6 +59,40 @@ const imageMimeTypes = {
 
 const isValidImageUrl = (value) => value == null || (typeof value === 'string' && value.length <= 512);
 
+async function validateReviewGifUrl(value) {
+  if (value == null || value === '') return { valid: true, url: null };
+  if (typeof value !== 'string' || value.length > 512) return { valid: false, url: null };
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(value.trim(), 'http://musicfy.local');
+  } catch {
+    return { valid: false, url: null };
+  }
+
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) return { valid: false, url: null };
+  const imageAssetMatch = parsedUrl.pathname.match(/\/api\/images\/([a-f\d]{32})$/i);
+  if (imageAssetMatch) {
+    const asset = await getDb('SELECT mime_type FROM image_assets WHERE id = ?', [imageAssetMatch[1]]);
+    return { valid: asset?.mime_type === 'image/gif', url: value.trim() };
+  }
+
+  return { valid: /\.gif$/i.test(parsedUrl.pathname), url: value.trim() };
+}
+
+async function saveReviewGif(reviewId, gifUrl) {
+  if (!gifUrl) {
+    await runDb('DELETE FROM review_media WHERE review_id = ?', [reviewId]);
+    return;
+  }
+
+  await runDb(
+    `INSERT INTO review_media (review_id, gif_url) VALUES (?, ?)
+    ON DUPLICATE KEY UPDATE gif_url = VALUES(gif_url)`,
+    [reviewId, gifUrl]
+  );
+}
+
 const tidbPort = Number(process.env.TIDB_PORT || 4000);
 if (!Number.isInteger(tidbPort) || tidbPort < 1 || tidbPort > 65535) {
   throw new Error('TIDB_PORT must be a valid TCP port.');
@@ -813,12 +847,13 @@ app.get('/api/releases/:id', async (req, res) => {
     links: trackLinks.filter((link) => link.track_id === track.id),
   }));
   const reviews = await allDb(`
-    SELECT rv.*, u.username, u.avatar_url,
+    SELECT rv.*, rm.gif_url, u.username, u.avatar_url,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
       ) AS liked_by_user
     FROM reviews rv
+    LEFT JOIN review_media rm ON rm.review_id = rv.id
     JOIN users u ON u.id = rv.user_id
     WHERE rv.release_id = ?
     ORDER BY rv.created_at DESC
@@ -1033,21 +1068,38 @@ app.delete('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
 });
 
 app.post('/api/reviews', requireAuth, async (req, res) => {
-  const { release_id, rating, review_text } = req.body;
-  if (!release_id || !rating) {
-    return res.status(400).json({ error: 'Release and rating are required.' });
+  const { release_id, rating, review_text, gif_url } = req.body;
+  const releaseId = parsePositiveId(release_id);
+  const parsedRating = Number(rating);
+  if (!releaseId || !Number.isInteger(parsedRating) || parsedRating < 0 || parsedRating > 10) {
+    return res.status(400).json({ error: 'Release and a rating from 0 to 10 are required.' });
+  }
+  if (review_text != null && typeof review_text !== 'string') {
+    return res.status(400).json({ error: 'Review text must be a string.' });
+  }
+  const reviewText = review_text || '';
+  if (reviewText.length > 300) {
+    return res.status(400).json({ error: 'Reviews can contain at most 300 characters.' });
   }
 
-  const existing = await getDb('SELECT id FROM reviews WHERE user_id = ? AND release_id = ?', [req.user.id, release_id]);
+  const hasGifUrl = Object.prototype.hasOwnProperty.call(req.body, 'gif_url');
+  const reviewGif = hasGifUrl ? await validateReviewGifUrl(gif_url) : { valid: true, url: null };
+  if (!reviewGif.valid) {
+    return res.status(400).json({ error: 'Attach a valid GIF URL or upload a GIF file.' });
+  }
+
+  const existing = await getDb('SELECT id FROM reviews WHERE user_id = ? AND release_id = ?', [req.user.id, releaseId]);
   if (existing) {
-    await runDb(`UPDATE reviews SET rating = ?, review_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [rating, review_text || '', existing.id]);
+    await runDb(`UPDATE reviews SET rating = ?, review_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [parsedRating, reviewText, existing.id]);
+    if (hasGifUrl) await saveReviewGif(existing.id, reviewGif.url);
     return res.json({ message: 'Review updated.', reviewId: existing.id });
   }
 
   const review = await runDb(
     `INSERT INTO reviews (user_id, release_id, rating, review_text) VALUES (?, ?, ?, ?)`,
-    [req.user.id, release_id, rating, review_text || '']
+    [req.user.id, releaseId, parsedRating, reviewText]
   );
+  if (hasGifUrl) await saveReviewGif(review.id, reviewGif.url);
 
   return res.status(201).json({ message: 'Review created.', reviewId: review.id });
 });
@@ -1059,8 +1111,27 @@ app.put('/api/reviews/:id', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'You can only update your own review.' });
   }
 
-  const { rating, review_text } = req.body;
-  await runDb(`UPDATE reviews SET rating = ?, review_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [rating, review_text || '', req.params.id]);
+  const { rating, review_text, gif_url } = req.body;
+  const parsedRating = Number(rating);
+  if (!Number.isInteger(parsedRating) || parsedRating < 0 || parsedRating > 10) {
+    return res.status(400).json({ error: 'Rating must be a number from 0 to 10.' });
+  }
+  if (review_text != null && typeof review_text !== 'string') {
+    return res.status(400).json({ error: 'Review text must be a string.' });
+  }
+  const reviewText = review_text || '';
+  if (reviewText.length > 300) {
+    return res.status(400).json({ error: 'Reviews can contain at most 300 characters.' });
+  }
+
+  const hasGifUrl = Object.prototype.hasOwnProperty.call(req.body, 'gif_url');
+  const reviewGif = hasGifUrl ? await validateReviewGifUrl(gif_url) : { valid: true, url: null };
+  if (!reviewGif.valid) {
+    return res.status(400).json({ error: 'Attach a valid GIF URL or upload a GIF file.' });
+  }
+
+  await runDb(`UPDATE reviews SET rating = ?, review_text = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [parsedRating, reviewText, req.params.id]);
+  if (hasGifUrl) await saveReviewGif(req.params.id, reviewGif.url);
   return res.json({ message: 'Review updated.' });
 });
 
@@ -1200,12 +1271,13 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found.' });
 
   const reviews = await allDb(`
-    SELECT rv.*, r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
+    SELECT rv.*, rm.gif_url, r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
       ) AS liked_by_user
     FROM reviews rv
+    LEFT JOIN review_media rm ON rm.review_id = rv.id
     JOIN releases r ON r.id = rv.release_id
     JOIN artists a ON a.id = r.artist_id
     WHERE rv.user_id = ?
@@ -1284,13 +1356,14 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
   `);
 
   const reviews = await allDb(`
-    SELECT rv.*, u.username, u.avatar_url, r.title AS release_title, a.name AS artist_name,
-      r.cover_url AS cover_url,
+    SELECT rv.*, rm.gif_url, u.username, u.full_name, u.avatar_url,
+      r.title AS release_title, r.cover_url AS cover_url, a.name AS artist_name,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
       ) AS liked_by_user
     FROM reviews rv
+    LEFT JOIN review_media rm ON rm.review_id = rv.id
     JOIN users u ON u.id = rv.user_id
     JOIN releases r ON r.id = rv.release_id
     JOIN artists a ON a.id = r.artist_id
@@ -1299,6 +1372,58 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
   `, [req.user?.id || 0]);
 
   return res.json({ featured, recent, artists, reviews });
+});
+
+app.get('/api/home-feed', optionalAuth, async (req, res) => {
+  const recentReleases = await allDb(`
+    SELECT r.*, a.name AS artist_name
+    FROM releases r
+    JOIN artists a ON a.id = r.artist_id
+    WHERE r.status = 'ACTIVE'
+      AND r.release_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 2 MONTH) AND CURDATE()
+    ORDER BY r.release_date DESC, r.id DESC
+    LIMIT 12
+  `);
+
+  const personalizedFilter = req.user ? `
+    WHERE (
+      rv.user_id = ?
+      OR EXISTS (
+        SELECT 1 FROM user_follows uf
+        WHERE uf.follower_id = ? AND uf.followed_id = rv.user_id
+      )
+      OR EXISTS (
+        SELECT 1 FROM pre_saves ps
+        WHERE ps.user_id = ? AND ps.release_id = rv.release_id
+      )
+      OR EXISTS (
+        SELECT 1 FROM favorites f
+        JOIN tracks t ON t.id = f.track_id
+        WHERE f.user_id = ? AND t.release_id = rv.release_id
+      )
+    )
+  ` : '';
+  const feedParams = req.user
+    ? [req.user.id, req.user.id, req.user.id, req.user.id, req.user.id]
+    : [0];
+  const reviews = await allDb(`
+    SELECT rv.*, rm.gif_url, u.username, u.full_name, u.avatar_url,
+      r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
+      (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
+      EXISTS (
+        SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
+      ) AS liked_by_user
+    FROM reviews rv
+    LEFT JOIN review_media rm ON rm.review_id = rv.id
+    JOIN users u ON u.id = rv.user_id
+    JOIN releases r ON r.id = rv.release_id
+    JOIN artists a ON a.id = r.artist_id
+    ${personalizedFilter}
+    ORDER BY rv.created_at DESC
+    LIMIT 50
+  `, feedParams);
+
+  return res.json({ recent_releases: recentReleases, reviews });
 });
 
 app.get('/api/genres', async (req, res) => {

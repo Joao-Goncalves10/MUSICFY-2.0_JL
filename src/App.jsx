@@ -25,6 +25,18 @@ const getReleaseFallbackImage = (release) => (
     : imagePlaceholder
 );
 
+const formatFeedDate = (value) => {
+  if (!value) return '';
+  const dateValue = String(value);
+  const normalizedDate = /^\d{4}-\d{2}-\d{2}$/.test(dateValue)
+    ? `${dateValue}T12:00:00`
+    : dateValue.replace(' ', 'T');
+  const parsedDate = new Date(normalizedDate);
+  return Number.isNaN(parsedDate.getTime())
+    ? String(value)
+    : parsedDate.toLocaleDateString('pt-BR', { day: 'numeric', month: 'short' });
+};
+
 const handleImageError = (event, fallbackImage) => {
   const image = event.currentTarget;
   const fallbackUrl = new URL(fallbackImage, window.location.href).toString();
@@ -362,123 +374,178 @@ function Navbar({ theme, onToggleTheme }) {
 
 function HomePage() {
   const { user } = useAuth();
-  const [featured, setFeatured] = useState([]);
-  const [releases, setReleases] = useState([]);
-  const [artists, setArtists] = useState([]);
   const [reviews, setReviews] = useState([]);
+  const [recentReleases, setRecentReleases] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [exploreRes, releasesRes, artistsRes] = await Promise.all([
-          api.get('/explore'),
-          api.get('/releases'),
-          api.get('/artists'),
-        ]);
+    let active = true;
+    setIsLoading(true);
+    setError('');
 
-        setFeatured(exploreRes.data.featured || []);
-        setReleases(releasesRes.data.slice(0, 8));
-        setArtists(artistsRes.data.slice(0, 5));
-        setReviews(exploreRes.data.reviews || []);
-      } catch (error) {
-        console.error('Home page failed', error);
-      }
-    };
+    api.get('/home-feed')
+      .then((response) => {
+        if (!active) return;
+        setReviews(response.data.reviews || []);
+        setRecentReleases(response.data.recent_releases || []);
+      })
+      .catch((requestError) => {
+        if (active) {
+          setReviews([]);
+          setRecentReleases([]);
+          setError(requestError.response?.data?.error || 'Não foi possível carregar seu feed.');
+        }
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
 
-    load();
-  }, [user]);
+    return () => { active = false; };
+  }, [user?.id]);
+
+  const handleReviewLikeChange = (reviewId, liked, likeCount) => {
+    setReviews((current) => current.map((review) => (
+      review.id === reviewId
+        ? { ...review, liked_by_user: liked, like_count: likeCount }
+        : review
+    )));
+  };
 
   return (
-    <div className="content-stack">
-      <div className="home-genre-strip" aria-label="Categorias musicais">
-        {['Para você', 'Pop', 'K-pop', 'Rock', 'R&B', 'MPB', 'Mais sons'].map((genre, index) => (
-          <span key={genre} className={index === 0 ? 'is-selected' : ''}>{genre}</span>
-        ))}
-      </div>
-
-      <section className="featured-section">
-        <div className="section-header">
-          <h2>Em alta</h2>
-        </div>
-
-        {featured[0] && (
-          <div className="featured-showcase">
-            <Link to={`/releases/${featured[0].id}`} className="featured-hero-card glass-panel">
-              <img src={featured[0].cover_url || getReleaseFallbackImage(featured[0])} onError={(event) => handleImageError(event, getReleaseFallbackImage(featured[0]))} alt={featured[0].title} />
-              <div className="featured-hero-overlay" />
-              <div className="featured-hero-copy">
-                <div className="featured-hero-title-block">
-                  <span className="featured-kicker">{featured[0].release_type}</span>
-                  <h3>{featured[0].title}</h3>
-                  <p>{featured[0].artist_name}</p>
-                </div>
-                <span className="play-pill"><span aria-hidden="true">▶</span> Ouvir álbum</span>
-              </div>
-            </Link>
+    <div className="home-page">
+      <section className="home-feed-column">
+        <header className="home-feed-heading">
+          <div>
+            <p className="eyebrow">Música compartilhada</p>
+            <h1>Seu feed</h1>
+            <p>{user ? 'Resenhas de quem você segue e dos lançamentos que salvou.' : 'Descubra o que as pessoas estão ouvindo.'}</p>
           </div>
-        )}
+          <Link to={user ? '/social' : '/auth'} className="home-network-link">
+            {user ? 'Encontrar pessoas' : 'Entrar'}
+            <span aria-hidden="true">↗</span>
+          </Link>
+        </header>
 
-        {featured.length > 1 && (
-          <div className="featured-mini-grid">
-            {featured.slice(1, 4).map((item) => (
-              <Link key={item.id} to={`/releases/${item.id}`} className="featured-mini-card glass-panel">
-                <img src={item.cover_url || getReleaseFallbackImage(item)} onError={(event) => handleImageError(event, getReleaseFallbackImage(item))} alt={item.title} />
-                <div className="featured-mini-copy">
-                  <strong>{item.title}</strong>
-                  <span>{item.artist_name}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+        <Link to="/explore" className="home-review-prompt glass-panel">
+          <span className="home-review-prompt-icon" aria-hidden="true">✎</span>
+          <span>
+            <strong>O que você achou do último álbum que ouviu?</strong>
+            <small>Escolha um lançamento e publique sua resenha</small>
+          </span>
+          <span className="home-review-prompt-arrow" aria-hidden="true">↗</span>
+        </Link>
 
-      <section className="subsection">
-        <div className="section-header">
-          <h2>Lançamentos recentes</h2>
-          <Link to="/explore">Ver tudo</Link>
-        </div>
-        <div className="card-grid home-release-grid">
-          {releases.map((release) => (
-            <ReleaseCard key={release.id} release={release} showListen />
-          ))}
-        </div>
-      </section>
-
-      <section className="subsection">
-        <div className="section-header">
-          <h2>Artistas populares</h2>
-        </div>
-        <div className="artist-grid">
-          {artists.map((artist) => (
-            <ArtistCard key={artist.id} artist={artist} />
-          ))}
-        </div>
-      </section>
-
-      <section className="subsection">
-        <div className="section-header">
-          <h2>Avaliações sociais</h2>
-        </div>
-        <div className="feed-list">
-          {reviews.map((review) => (
-            <div key={review.id} className="review-feed-item glass-panel">
-              <div className="review-head">
-                <Link to={`/profile/${review.user_id}`} className="mini-user review-author-link">
-                  <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={review.username} />
-                  <div>
-                    <strong>{review.username}</strong>
-                    <span>{review.artist_name} · {review.release_title}</span>
-                  </div>
-                </Link>
-                <RatingBadge value={review.rating} />
-              </div>
-              <p>{review.review_text}</p>
-              <ReviewLikeButton review={review} user={user} />
+        <section className="home-social-feed" aria-labelledby="home-feed-title">
+          <div className="home-feed-section-heading">
+            <div>
+              <p className="eyebrow">Seu círculo musical</p>
+              <h2 id="home-feed-title">Resenhas recentes</h2>
             </div>
-          ))}
-        </div>
+            {!isLoading && <span>{reviews.length} {reviews.length === 1 ? 'resenha' : 'resenhas'}</span>}
+          </div>
+
+          {error && <p className="error-text" role="alert">{error}</p>}
+          {isLoading ? (
+            <div className="home-feed-loading glass-panel" aria-live="polite">Carregando seu feed…</div>
+          ) : reviews.length ? (
+            <div className="home-review-list">
+              {reviews.map((review) => (
+                <article key={review.id} className="home-review-card glass-panel">
+                  <header className="home-review-author-row">
+                    <Link to={`/profile/${review.user_id}`} className="home-review-author">
+                      <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                      <span>
+                        <strong>{review.full_name || review.username}</strong>
+                        <small>@{review.username} · {formatFeedDate(review.created_at)}</small>
+                      </span>
+                    </Link>
+                    <RatingBadge value={review.rating} />
+                  </header>
+
+                  <Link to={`/releases/${review.release_id}`} className="home-review-release">
+                    <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                    <span>
+                      <small>RESENHA DE</small>
+                      <strong>{review.release_title}</strong>
+                      <span>{review.artist_name}</span>
+                    </span>
+                    <span className="home-review-release-arrow" aria-hidden="true">↗</span>
+                  </Link>
+
+                  {review.review_text ? (
+                    <p className="home-review-text">{review.review_text}</p>
+                  ) : (
+                    <p className="home-review-text is-empty">Compartilhou uma nota para este lançamento.</p>
+                  )}
+                  {review.gif_url && <ReviewGif src={review.gif_url} />}
+
+                  <footer className="home-review-actions">
+                    <ReviewLikeButton
+                      review={review}
+                      user={user}
+                      onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
+                    />
+                    <Link to={`/releases/${review.release_id}`} className="home-review-open-link">Abrir lançamento</Link>
+                  </footer>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="home-feed-empty glass-panel">
+              <span className="home-empty-mark" aria-hidden="true">♫</span>
+              <h3>{user ? 'Seu feed está começando' : 'Ainda não há resenhas por aqui'}</h3>
+              <p>{user
+                ? 'Siga pessoas ou salve lançamentos para ver novas resenhas neste espaço.'
+                : 'Entre para acompanhar pessoas e guardar os lançamentos que você curte.'}
+              </p>
+              <Link to={user ? '/social' : '/auth'} className="secondary-btn">
+                {user ? 'Descobrir pessoas' : 'Entrar no Musicfy'}
+              </Link>
+            </div>
+          )}
+        </section>
       </section>
+
+      <aside className="home-right-rail" aria-label="Descobertas musicais">
+        <section className="home-recent-panel glass-panel">
+          <header className="home-recent-heading">
+            <div>
+              <p className="eyebrow">Descubra música nova</p>
+              <h2>Lançamentos recentes</h2>
+            </div>
+            <span className="home-recent-window">Últimos 2 meses</span>
+          </header>
+
+          {recentReleases.length ? (
+            <div className="home-recent-list">
+              {recentReleases.map((release) => (
+                <Link key={release.id} to={`/releases/${release.id}`} className="home-recent-release">
+                  <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
+                  <span>
+                    <small>{release.release_type} · {formatFeedDate(release.release_date)}</small>
+                    <strong>{release.title}</strong>
+                    <span>{release.artist_name}</span>
+                  </span>
+                  <span className="home-recent-arrow" aria-hidden="true">↗</span>
+                </Link>
+              ))}
+            </div>
+          ) : !isLoading ? (
+            <p className="home-recent-empty">Nenhum lançamento nos últimos dois meses.</p>
+          ) : (
+            <p className="home-recent-empty">Buscando novidades…</p>
+          )}
+
+          <Link to="/explore" className="home-explore-link">Explorar catálogo <span aria-hidden="true">→</span></Link>
+        </section>
+
+        <section className="home-social-note glass-panel">
+          <span aria-hidden="true">✦</span>
+          <p>As resenhas do seu feed vêm das pessoas que você segue e dos álbuns que você salvou.</p>
+          {user && <Link to="/social">Monte seu círculo musical <span aria-hidden="true">→</span></Link>}
+        </section>
+      </aside>
     </div>
   );
 }
@@ -639,6 +706,22 @@ function ReviewLikeButton({ review, user, onChange }) {
       </button>
       {error && <span className="follow-error" role="alert">{error}</span>}
     </div>
+  );
+}
+
+function ReviewGif({ src }) {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [src]);
+
+  if (!src || hasError) return null;
+
+  return (
+    <figure className="review-gif-frame">
+      <img src={src} alt="GIF compartilhado na resenha" loading="lazy" onError={() => setHasError(true)} />
+    </figure>
   );
 }
 
@@ -873,11 +956,13 @@ function ReleaseDetailPage() {
   const navigate = useNavigate();
   const [releaseInfo, setReleaseInfo] = useState(null);
   const [reviewText, setReviewText] = useState('');
+  const [reviewGifUrl, setReviewGifUrl] = useState('');
   const [rating, setRating] = useState(8);
   const [message, setMessage] = useState('');
   const [deleteError, setDeleteError] = useState('');
   const [isDeletingRelease, setIsDeletingRelease] = useState(false);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [isUploadingReviewGif, setIsUploadingReviewGif] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [preSaved, setPreSaved] = useState(false);
   const [playlists, setPlaylists] = useState([]);
@@ -964,15 +1049,46 @@ function ReleaseDetailPage() {
     setIsSubmittingReview(true);
     setMessage('');
     try {
-      await api.post('/reviews', { release_id: Number(releaseId), rating, review_text: reviewText });
+      await api.post('/reviews', {
+        release_id: Number(releaseId),
+        rating,
+        review_text: reviewText,
+        gif_url: reviewGifUrl,
+      });
       setMessage('Avaliação publicada com sucesso.');
       setReviewText('');
+      setReviewGifUrl('');
       setIsReviewModalOpen(false);
       await load();
     } catch (error) {
       setMessage(error.response?.data?.error || 'Não foi possível publicar a avaliação.');
     } finally {
       setIsSubmittingReview(false);
+    }
+  };
+
+  const uploadReviewGif = async (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    if (file.type !== 'image/gif') {
+      setMessage('Selecione um arquivo GIF válido.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage('O GIF deve ter no máximo 10 MB.');
+      return;
+    }
+
+    setMessage('');
+    setIsUploadingReviewGif(true);
+    try {
+      setReviewGifUrl(await uploadImage(file));
+    } catch (error) {
+      setMessage(error.response?.data?.error || 'Não foi possível enviar o GIF.');
+    } finally {
+      setIsUploadingReviewGif(false);
     }
   };
 
@@ -1270,7 +1386,7 @@ function ReleaseDetailPage() {
                 type="button"
                 className="close-btn review-close-btn"
                 aria-label="Fechar avaliação"
-                disabled={isSubmittingReview}
+                disabled={isSubmittingReview || isUploadingReviewGif}
                 onClick={() => setIsReviewModalOpen(false)}
               >
                 ×
@@ -1325,9 +1441,35 @@ function ReleaseDetailPage() {
                   onChange={(e) => setReviewText(e.target.value)}
                   placeholder="O que mais chamou sua atenção neste lançamento?"
                   rows="5"
-                  disabled={isSubmittingReview}
+                  maxLength={300}
+                  disabled={isSubmittingReview || isUploadingReviewGif}
                 />
+                <small className="review-character-count" aria-live="polite">
+                  {reviewText.length}/300 caracteres
+                </small>
               </label>
+
+              <div className="review-gif-picker">
+                <label htmlFor="review-gif-upload">
+                  <span aria-hidden="true">▧</span>
+                  {isUploadingReviewGif ? 'Enviando GIF…' : reviewGifUrl ? 'Trocar GIF' : 'Adicionar GIF'}
+                </label>
+                <input
+                  id="review-gif-upload"
+                  type="file"
+                  accept="image/gif,.gif"
+                  onChange={uploadReviewGif}
+                  disabled={isSubmittingReview || isUploadingReviewGif}
+                />
+                {reviewGifUrl && (
+                  <div className="review-gif-preview">
+                    <ReviewGif src={reviewGifUrl} />
+                    <button type="button" className="ghost-btn compact-btn" onClick={() => setReviewGifUrl('')}>
+                      Remover GIF
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {message && <p className="review-error" role="alert">{message}</p>}
 
@@ -1335,13 +1477,13 @@ function ReleaseDetailPage() {
                 <button
                   className="secondary-btn"
                   type="button"
-                  disabled={isSubmittingReview}
+                  disabled={isSubmittingReview || isUploadingReviewGif}
                   onClick={() => setIsReviewModalOpen(false)}
                 >
                   Cancelar
                 </button>
-                <button className="primary-btn" type="submit" disabled={isSubmittingReview}>
-                  {isSubmittingReview ? 'Publicando...' : 'Publicar avaliação'}
+                <button className="primary-btn" type="submit" disabled={isSubmittingReview || isUploadingReviewGif}>
+                  {isSubmittingReview ? 'Publicando...' : isUploadingReviewGif ? 'Enviando GIF…' : 'Publicar avaliação'}
                 </button>
               </div>
             </form>
@@ -1365,6 +1507,7 @@ function ReleaseDetailPage() {
                 <RatingBadge value={review.rating} />
               </div>
               <p>{review.review_text}</p>
+              {review.gif_url && <ReviewGif src={review.gif_url} />}
               <div className="review-actions">
                 <ReviewLikeButton
                   review={review}
@@ -1648,6 +1791,7 @@ function ProfilePage() {
                       <RatingBadge value={review.rating} />
                     </div>
                     <p>{review.review_text || 'Sem comentário escrito.'}</p>
+                    {review.gif_url && <ReviewGif src={review.gif_url} />}
                     <small>{review.created_at}</small>
                     <ReviewLikeButton review={review} user={user} />
                   </div>
