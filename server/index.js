@@ -235,6 +235,7 @@ const normalizeUser = (user) => {
     bio: user.bio,
     role: user.role || 'USER',
     is_suspended: Boolean(Number(user.is_suspended)),
+    is_approved: Boolean(Number(user.is_approved)),
     created_at: user.created_at,
   };
 };
@@ -275,7 +276,7 @@ const requireAuth = async (req, res, next) => {
     const userId = parsePositiveId(decoded.id);
     if (!userId) return res.status(401).json({ error: 'Invalid or expired token.' });
 
-    const account = await getDb('SELECT id, `role`, is_suspended FROM users WHERE id = ?', [userId]);
+    const account = await getDb('SELECT id, `role`, is_suspended, is_approved FROM users WHERE id = ?', [userId]);
     if (!account) return res.status(401).json({ error: 'Account no longer exists.' });
     const isSuspended = Boolean(Number(account.is_suspended));
     const notificationAccessAllowed = (
@@ -283,11 +284,25 @@ const requireAuth = async (req, res, next) => {
       || (req.method === 'POST' && req.path === '/api/notifications/read-all')
       || (req.method === 'POST' && /^\/api\/notifications\/\d+\/read$/.test(req.path))
     );
+    const isApproved = Boolean(Number(account.is_approved));
     if (isSuspended && !notificationAccessAllowed) {
       return res.status(403).json({ error: 'Conta suspensa. Acesse apenas suas notificações.' });
     }
 
-    req.user = { ...decoded, id: Number(account.id), role: account.role, is_suspended: isSuspended };
+    req.user = {
+      ...decoded,
+      id: Number(account.id),
+      role: account.role,
+      is_suspended: isSuspended,
+      is_approved: isApproved,
+    };
+    const isReadOnlyMethod = ['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+    if (!isApproved && !isReadOnlyMethod && !notificationAccessAllowed) {
+      return res.status(403).json({
+        error: 'Sua conta ainda aguarda aprovação da equipe administrativa. Enquanto isso, você pode apenas ler o conteúdo.',
+        code: 'ACCOUNT_PENDING_APPROVAL',
+      });
+    }
     return next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
@@ -297,15 +312,35 @@ const requireAuth = async (req, res, next) => {
   }
 };
 
-const optionalAuth = (req, res, next) => {
+const optionalAuth = async (req, res, next) => {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.substring(7) : null;
   if (!token) return next();
 
   try {
-    req.user = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const userId = parsePositiveId(decoded.id);
+    if (userId) {
+      const account = await getDb(
+        'SELECT id, `role`, is_suspended, is_approved FROM users WHERE id = ?',
+        [userId]
+      );
+      if (account) {
+        req.user = {
+          ...decoded,
+          id: Number(account.id),
+          role: account.role,
+          is_suspended: Boolean(Number(account.is_suspended)),
+          is_approved: Boolean(Number(account.is_approved)),
+        };
+      }
+    }
   } catch (error) {
-    req.user = null;
+    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+      req.user = null;
+    } else {
+      return next(error);
+    }
   }
   return next();
 };
@@ -369,6 +404,15 @@ async function initializeDatabase() {
   `);
   if (!suspendedColumn) {
     await execDb('ALTER TABLE users ADD COLUMN is_suspended TINYINT(1) NOT NULL DEFAULT 0');
+  }
+
+  const approvalColumn = await getDb(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'is_approved'
+  `);
+  if (!approvalColumn) {
+    await execDb('ALTER TABLE users ADD COLUMN is_approved TINYINT(1) NOT NULL DEFAULT 1');
   }
 
   const notificationColumns = [
@@ -733,25 +777,34 @@ app.get('/api/images/:id', async (req, res) => {
 
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username, full_name, email, password, confirmPassword } = req.body;
+    const {
+      username: submittedUsername,
+      full_name: submittedName,
+      email: submittedEmail,
+      password,
+      confirmPassword,
+    } = req.body;
+    const username = typeof submittedUsername === 'string' ? submittedUsername.trim() : '';
+    const full_name = typeof submittedName === 'string' ? submittedName.trim() : '';
+    const email = typeof submittedEmail === 'string' ? submittedEmail.trim().toLowerCase() : '';
     if (!username || !full_name || !email || !password) {
-      return res.status(400).json({ error: 'All fields are required.' });
+      return res.status(400).json({ error: 'Nome, nome de usuário, e-mail e senha são obrigatórios.' });
     }
     if (password !== confirmPassword) {
-      return res.status(400).json({ error: 'Passwords do not match.' });
+      return res.status(400).json({ error: 'As senhas não correspondem.' });
     }
     if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+      return res.status(400).json({ error: 'A senha deve ter pelo menos 6 caracteres.' });
     }
 
     const existing = await getDb('SELECT id FROM users WHERE username = ? OR email = ?', [username, email]);
     if (existing) {
-      return res.status(409).json({ error: 'Username or email already in use.' });
+      return res.status(409).json({ error: 'Este nome de usuário ou e-mail já está cadastrado.' });
     }
 
     const passwordHash = bcrypt.hashSync(password, 10);
     const result = await runDb(
-      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, 'USER')`,
+      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, bio, \`role\`, is_approved) VALUES (?, ?, ?, ?, ?, ?, 'USER', 0)`,
       [username, full_name, email, passwordHash, 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80', 'New to Musicfy.']
     );
 
@@ -759,6 +812,9 @@ app.post('/api/auth/register', async (req, res) => {
     const token = sendToken(user);
     return res.status(201).json({ token, user: normalizeUser(user) });
   } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ error: 'Este nome de usuário ou e-mail já está cadastrado.' });
+    }
     console.error(error);
     return res.status(500).json({ error: 'Registration failed.' });
   }
@@ -1459,6 +1515,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
     FROM users u
     WHERE u.id <> ?
       AND u.is_suspended = 0
+      AND u.is_approved = 1
       AND (? = '' OR u.username LIKE ? OR u.full_name LIKE ?)
     ORDER BY u.created_at DESC, u.id DESC
     LIMIT 30
@@ -1472,7 +1529,7 @@ app.post('/api/users/:userId/follow', requireAuth, async (req, res) => {
   if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
   if (userId === Number(req.user.id)) return res.status(400).json({ error: 'You cannot follow your own profile.' });
 
-  const targetUser = await getDb('SELECT id FROM users WHERE id = ? AND is_suspended = 0', [userId]);
+  const targetUser = await getDb('SELECT id FROM users WHERE id = ? AND is_suspended = 0 AND is_approved = 1', [userId]);
   if (!targetUser) return res.status(404).json({ error: 'User not found.' });
 
   const result = await runDb('INSERT IGNORE INTO user_follows (follower_id, followed_id) VALUES (?, ?)', [req.user.id, userId]);
@@ -1495,7 +1552,7 @@ app.delete('/api/users/:userId/follow', requireAuth, async (req, res) => {
   if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
   if (userId === Number(req.user.id)) return res.status(400).json({ error: 'You cannot unfollow your own profile.' });
 
-  const targetUser = await getDb('SELECT id FROM users WHERE id = ? AND is_suspended = 0', [userId]);
+  const targetUser = await getDb('SELECT id FROM users WHERE id = ? AND is_suspended = 0 AND is_approved = 1', [userId]);
   if (!targetUser) return res.status(404).json({ error: 'User not found.' });
   await runDb('DELETE FROM user_follows WHERE follower_id = ? AND followed_id = ?', [req.user.id, userId]);
   return res.json({ following: false });
@@ -1504,8 +1561,17 @@ app.delete('/api/users/:userId/follow', requireAuth, async (req, res) => {
 const getUserRelationshipList = async (req, res, relationship) => {
   const userId = parsePositiveId(req.params.userId);
   if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
-  const profileUser = await getDb('SELECT id FROM users WHERE id = ? AND is_suspended = 0', [userId]);
-  if (!profileUser) return res.status(404).json({ error: 'User not found.' });
+  const profileUser = await getDb(
+    'SELECT id, is_approved FROM users WHERE id = ? AND is_suspended = 0',
+    [userId]
+  );
+  const canViewPendingProfile = (
+    Number(req.user?.id) === userId
+    || req.user?.role === 'ADMIN'
+  );
+  if (!profileUser || (!Number(profileUser.is_approved) && !canViewPendingProfile)) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
 
   const followerColumn = relationship === 'followers' ? 'uf.followed_id' : 'uf.follower_id';
   const selectedColumn = relationship === 'followers' ? 'uf.follower_id' : 'uf.followed_id';
@@ -1519,6 +1585,7 @@ const getUserRelationshipList = async (req, res, relationship) => {
     JOIN users u ON u.id = ${selectedColumn}
     WHERE ${followerColumn} = ?
       AND u.is_suspended = 0
+      AND u.is_approved = 1
     ORDER BY uf.created_at DESC
     LIMIT 100
   `, [req.user?.id || 0, userId]);
@@ -1532,10 +1599,16 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
   const userId = parsePositiveId(req.params.userId);
   if (!userId) return res.status(400).json({ error: 'Invalid user ID.' });
   const user = await getDb(
-    'SELECT id, username, full_name, avatar_url, banner_url, bio, created_at FROM users WHERE id = ? AND is_suspended = 0',
+    'SELECT id, username, full_name, avatar_url, banner_url, bio, created_at, is_approved FROM users WHERE id = ? AND is_suspended = 0',
     [userId]
   );
-  if (!user) return res.status(404).json({ error: 'User not found.' });
+  const canViewPendingProfile = (
+    Number(req.user?.id) === userId
+    || req.user?.role === 'ADMIN'
+  );
+  if (!user || (!Number(user.is_approved) && !canViewPendingProfile)) {
+    return res.status(404).json({ error: 'User not found.' });
+  }
 
   const reviews = await allDb(`
     SELECT rv.*, rm.gif_url, r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
@@ -1614,6 +1687,21 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
     LIMIT 6
   `);
 
+  const releases = await allDb(`
+    SELECT r.*, a.name AS artist_name, a.image_url AS artist_image,
+      rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
+    FROM releases r
+    JOIN artists a ON a.id = r.artist_id
+    LEFT JOIN (
+      SELECT rv.release_id, ROUND(AVG(rv.rating), 1) AS avg_rating, COUNT(*) AS review_count
+      FROM reviews rv
+      JOIN users u ON u.id = rv.user_id
+      WHERE u.is_suspended = 0
+      GROUP BY rv.release_id
+    ) rv ON rv.release_id = r.id
+    ORDER BY r.release_date DESC, r.id DESC
+  `);
+
   const artists = await allDb(`
     SELECT a.*,
       (SELECT COUNT(*) FROM releases r WHERE r.artist_id = a.id) AS release_count
@@ -1639,7 +1727,7 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
     LIMIT 6
   `, [req.user?.id || 0]);
 
-  return res.json({ featured, recent, artists, reviews });
+  return res.json({ featured, recent, releases, artists, reviews });
 });
 
 app.get('/api/home-feed', optionalAuth, async (req, res) => {
@@ -1708,6 +1796,19 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
 app.get('/api/genres', async (req, res) => {
   const genres = await allDb('SELECT * FROM genres ORDER BY name ASC');
   return res.json(genres);
+});
+
+app.post('/api/genres', requireAuth, requireAdmin, async (req, res) => {
+  const name = typeof req.body?.name === 'string'
+    ? req.body.name.trim().replace(/\s+/g, ' ')
+    : '';
+  if (!name) return res.status(400).json({ error: 'Genre name is required.' });
+  if (name.length > 191) return res.status(400).json({ error: 'Genre name must be 191 characters or fewer.' });
+
+  await runDb('INSERT IGNORE INTO genres (name) VALUES (?)', [name]);
+  const genre = await getDb('SELECT id, name FROM genres WHERE name = ?', [name]);
+  if (!genre) return res.status(500).json({ error: 'Could not create genre.' });
+  return res.status(201).json(genre);
 });
 
 app.get('/api/playlists', requireAuth, async (req, res) => {
@@ -1992,14 +2093,73 @@ app.delete('/api/admin/featured/:featuredId', requireAuth, requireAdmin, async (
 });
 
 app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
+  const approvalFilter = req.query.approval === 'pending' ? 'AND is_approved = 0' : '';
   const users = await allDb(`
-    SELECT id, username, full_name, email, is_suspended, created_at
+    SELECT id, username, full_name, email, avatar_url, bio, is_suspended, is_approved, created_at
     FROM users
     WHERE \`role\` = 'USER'
-    ORDER BY is_suspended ASC, created_at DESC, id DESC
+      ${approvalFilter}
+    ORDER BY is_approved ASC, is_suspended ASC, created_at DESC, id DESC
     LIMIT 200
   `);
-  return res.json(users.map((user) => ({ ...user, is_suspended: Boolean(Number(user.is_suspended)) })));
+  return res.json(users.map((user) => ({
+    ...user,
+    is_suspended: Boolean(Number(user.is_suspended)),
+    is_approved: Boolean(Number(user.is_approved)),
+  })));
+});
+
+app.post('/api/admin/users/:userId/approve', requireAuth, requireAdmin, async (req, res) => {
+  const userId = parsePositiveId(req.params.userId);
+  if (!userId) return res.status(400).json({ error: 'User ID is invalid.' });
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(
+      'SELECT id, `role`, is_approved FROM users WHERE id = ? FOR UPDATE',
+      [userId]
+    );
+    const target = rows[0];
+    if (!target) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'User not found.' });
+    }
+    if (target.role !== 'USER') {
+      await connection.rollback();
+      return res.status(403).json({ error: 'Only standard user profiles can be approved.' });
+    }
+    if (Number(target.is_approved)) {
+      await connection.rollback();
+      return res.json({ is_approved: true, changed: false });
+    }
+
+    await connection.execute(
+      'UPDATE users SET is_approved = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [userId]
+    );
+    await connection.execute(
+      'INSERT INTO notifications (user_id, type, actor_user_id, message, link_url) VALUES (?, ?, ?, ?, ?)',
+      [
+        userId,
+        'ACCOUNT_APPROVED',
+        req.user.id,
+        'Sua conta foi aprovada. Atualize a página para começar a participar do Musicfy.',
+        '/',
+      ]
+    );
+    await connection.commit();
+    return res.json({ is_approved: true, changed: true });
+  } catch (error) {
+    try {
+      await connection.rollback();
+    } catch (rollbackError) {
+      console.error('Failed to roll back profile approval:', rollbackError);
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 });
 
 app.delete('/api/admin/users/:userId', requireAuth, requireAdmin, async (req, res) => {

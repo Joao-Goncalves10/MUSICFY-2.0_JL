@@ -19,6 +19,23 @@ const normalizeGenre = (genre) => String(genre || '')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '');
 
+const splitGenreNames = (value) => String(value || '')
+  .split(/[,/|]/)
+  .map((genre) => genre.trim())
+  .filter(Boolean);
+
+const mergeGenreOptions = (genres = []) => {
+  const options = new Map();
+  [...MUSIC_GENRES, ...genres.map((genre) => typeof genre === 'string' ? genre : genre?.name || '')]
+    .map((genre) => genre.trim())
+    .filter(Boolean)
+    .forEach((genre) => {
+      const key = normalizeGenre(genre);
+      if (!options.has(key)) options.set(key, genre);
+    });
+  return [...options.values()];
+};
+
 const getArtistFallbackImage = (artist) => {
   const name = String(artist?.name || '').trim().toLocaleLowerCase();
   if (name === 'adéla') return adelaProfileImage;
@@ -163,6 +180,10 @@ function useAuth() {
   return useContext(AuthContext);
 }
 
+function isAccountApproved(user) {
+  return Boolean(user && Number(user.is_approved) === 1);
+}
+
 function AuthProvider({ children }) {
   const [token, setToken] = useState(localStorage.getItem('musicfy-token') || '');
   const [user, setUser] = useState(() => {
@@ -178,6 +199,26 @@ function AuthProvider({ children }) {
       localStorage.removeItem('musicfy-token');
       delete api.defaults.headers.common.Authorization;
     }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    let active = true;
+    api.get('/auth/me')
+      .then(({ data }) => {
+        if (active) setUser(data.user);
+      })
+      .catch((error) => {
+        if (!active) return;
+        if (error.response?.status === 401) {
+          setToken('');
+          setUser(null);
+          return;
+        }
+        console.error('Unable to refresh the current account:', error);
+      });
+
+    return () => { active = false; };
   }, [token]);
 
   useEffect(() => {
@@ -240,6 +281,14 @@ function AppContent({ theme, onToggleTheme }) {
       <div className={`app-layout${user?.is_suspended ? ' is-account-suspended' : ''}`}>
         <Sidebar />
         <main className="page-shell">
+          {user && !user.is_suspended && !isAccountApproved(user) && (
+            <div className="account-approval-notice" role="status">
+              <strong>Conta em análise</strong>
+              <span>
+                Você pode navegar e ler o conteúdo. As interações serão liberadas após a aprovação da equipe administrativa; atualize a página depois de receber a confirmação.
+              </span>
+            </div>
+          )}
           <AccountAccessGate>
             <Routes>
               <Route path="/" element={<HomePage />} />
@@ -722,6 +771,9 @@ function HomePage() {
   const [reviews, setReviews] = useState([]);
   const [featuredSlides, setFeaturedSlides] = useState([]);
   const [recentReleases, setRecentReleases] = useState([]);
+  const [feedQuery, setFeedQuery] = useState('');
+  const [feedRatingFilter, setFeedRatingFilter] = useState('all');
+  const [recentReleaseTypeFilter, setRecentReleaseTypeFilter] = useState('Todos');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -770,6 +822,17 @@ function HomePage() {
     setReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
   };
 
+  const normalizedFeedQuery = normalizeGenre(feedQuery);
+  const visibleReviews = reviews
+    .filter((review) => (
+      (!normalizedFeedQuery || normalizeGenre(`${review.full_name} ${review.username} ${review.release_title} ${review.artist_name} ${review.review_text}`).includes(normalizedFeedQuery))
+      && (feedRatingFilter === 'all' || Number(review.rating || 0) >= Number(feedRatingFilter))
+    ))
+    .sort((first, second) => String(second.created_at).localeCompare(String(first.created_at)));
+  const visibleRecentReleases = recentReleases.filter((release) => (
+    recentReleaseTypeFilter === 'Todos' || release.release_type === recentReleaseTypeFilter
+  ));
+
   return (
     <div className="home-page">
       <section className="home-feed-column">
@@ -801,15 +864,30 @@ function HomePage() {
               <p className="eyebrow">Seu círculo musical</p>
               <h2 id="home-feed-title">Resenhas recentes</h2>
             </div>
-            {!isLoading && <span>{reviews.length} {reviews.length === 1 ? 'resenha' : 'resenhas'}</span>}
+            {!isLoading && <span>{visibleReviews.length} de {reviews.length} resenhas</span>}
+          </div>
+
+          <div className="listing-filters home-feed-filters">
+            <input
+              type="search"
+              value={feedQuery}
+              onChange={(event) => setFeedQuery(event.target.value)}
+              placeholder="Buscar por pessoa, artista ou lançamento"
+              aria-label="Buscar resenhas do feed"
+            />
+            <select aria-label="Filtrar resenhas por nota" value={feedRatingFilter} onChange={(event) => setFeedRatingFilter(event.target.value)}>
+              <option value="all">Todas as notas</option>
+              <option value="8">Nota 8 ou mais</option>
+              <option value="5">Nota 5 ou mais</option>
+            </select>
           </div>
 
           {error && <p className="error-text" role="alert">{error}</p>}
           {isLoading ? (
             <div className="home-feed-loading glass-panel" aria-live="polite">Carregando seu feed…</div>
-          ) : reviews.length ? (
+          ) : visibleReviews.length ? (
             <div className="home-review-list">
-              {reviews.map((review) => (
+              {visibleReviews.map((review) => (
                 <article key={review.id} className="home-review-card glass-panel">
                   <header className="home-review-author-row">
                     <Link to={`/profile/${review.user_id}`} className="home-review-author">
@@ -834,6 +912,8 @@ function HomePage() {
 
                   {review.review_text ? (
                     <p className="home-review-text">{review.review_text}</p>
+                  ) : reviews.length ? (
+                    <p className="explore-empty-state">Nenhuma resenha corresponde aos filtros selecionados.</p>
                   ) : (
                     <p className="home-review-text is-empty">Compartilhou uma nota para este lançamento.</p>
                   )}
@@ -882,9 +962,21 @@ function HomePage() {
             <span className="home-recent-window">Últimos 2 meses</span>
           </header>
 
-          {recentReleases.length ? (
+          <select
+            className="home-recent-type-filter"
+            aria-label="Filtrar lançamentos recentes por tipo"
+            value={recentReleaseTypeFilter}
+            onChange={(event) => setRecentReleaseTypeFilter(event.target.value)}
+          >
+            <option>Todos</option>
+            <option>Album</option>
+            <option>EP</option>
+            <option>Single</option>
+          </select>
+
+          {visibleRecentReleases.length ? (
             <div className="home-recent-list">
-              {recentReleases.map((release) => (
+              {visibleRecentReleases.map((release) => (
                 <Link key={release.id} to={`/releases/${release.id}`} className="home-recent-release">
                   <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
                   <span>
@@ -896,6 +988,8 @@ function HomePage() {
                 </Link>
               ))}
             </div>
+          ) : !isLoading && recentReleases.length ? (
+            <p className="home-recent-empty">Nenhum lançamento deste tipo.</p>
           ) : !isLoading ? (
             <p className="home-recent-empty">Nenhum lançamento nos últimos dois meses.</p>
           ) : (
@@ -916,15 +1010,28 @@ function HomePage() {
 }
 
 function ExplorePage() {
-  const [data, setData] = useState({ featured: [], recent: [], artists: [], reviews: [] });
+  const [data, setData] = useState({ featured: [], recent: [], releases: [], artists: [], reviews: [] });
   const [selectedGenre, setSelectedGenre] = useState('Todos');
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [releaseTypeFilter, setReleaseTypeFilter] = useState('Todos');
+  const [releaseSort, setReleaseSort] = useState('newest');
+  const [genreOptions, setGenreOptions] = useState(MUSIC_GENRES);
   const [canScrollGenres, setCanScrollGenres] = useState(false);
   const genreTrackRef = useRef(null);
   const genreDragRef = useRef({ startX: 0, startScrollLeft: 0, isDragging: false, didDrag: false });
-  const genres = ['Todos', ...MUSIC_GENRES];
 
   useEffect(() => {
     api.get('/explore').then((res) => setData(res.data)).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/genres')
+      .then((response) => {
+        if (active) setGenreOptions(mergeGenreOptions(response.data));
+      })
+      .catch(console.error);
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
@@ -940,19 +1047,25 @@ function ExplorePage() {
     return () => window.removeEventListener('resize', updateScrollState);
   }, []);
 
-  const filterReleases = (releases) => {
-    if (selectedGenre === 'Todos') return releases;
-    const selected = normalizeGenre(selectedGenre);
-
-    return releases.filter((release) => (
-      String(release.genre || '')
-        .split(/[,/|]/)
-        .some((genre) => normalizeGenre(genre) === selected)
-    ));
-  };
-
-  const featuredReleases = filterReleases(data.featured);
-  const recentReleases = filterReleases(data.recent);
+  const normalizedCatalogQuery = normalizeGenre(catalogQuery);
+  const filteredReleases = data.releases
+    .filter((release) => {
+      const releaseGenres = splitGenreNames(release.genre).map(normalizeGenre);
+      return (
+        (selectedGenre === 'Todos' || releaseGenres.includes(normalizeGenre(selectedGenre)))
+        && (releaseTypeFilter === 'Todos' || release.release_type === releaseTypeFilter)
+        && (!normalizedCatalogQuery || normalizeGenre(`${release.title} ${release.artist_name}`).includes(normalizedCatalogQuery))
+      );
+    })
+    .sort((first, second) => {
+      if (releaseSort === 'oldest') return String(first.release_date).localeCompare(String(second.release_date));
+      if (releaseSort === 'title') return String(first.title).localeCompare(String(second.title));
+      if (releaseSort === 'rating') {
+        return Number(second.avg_rating || 0) - Number(first.avg_rating || 0)
+          || Number(second.review_count || 0) - Number(first.review_count || 0);
+      }
+      return String(second.release_date).localeCompare(String(first.release_date));
+    });
 
   const scrollGenres = (direction) => {
     const track = genreTrackRef.current;
@@ -1038,7 +1151,7 @@ function ExplorePage() {
               setCanScrollGenres(track.scrollWidth > track.clientWidth + 1);
             }}
           >
-            {genres.map((genre) => (
+            {['Todos', ...genreOptions].map((genre) => (
               <button
                 type="button"
                 className={`genre-pill${selectedGenre === genre ? ' is-selected' : ''}`}
@@ -1056,31 +1169,37 @@ function ExplorePage() {
       <section className="subsection explore-release-section">
         <div className="explore-section-heading">
           <div>
-            <p className="eyebrow">Seleção Musicfy</p>
-            <h2>Escolhas em destaque</h2>
+            <p className="eyebrow">Catálogo completo</p>
+            <h2>Todos os lançamentos</h2>
           </div>
-          {selectedGenre !== 'Todos' && <span className="explore-filter-label">{selectedGenre}</span>}
+          <span className="explore-filter-label">{filteredReleases.length} encontrados</span>
+        </div>
+        <div className="listing-filters explore-catalog-filters">
+          <input
+            type="search"
+            value={catalogQuery}
+            onChange={(event) => setCatalogQuery(event.target.value)}
+            placeholder="Buscar álbum, EP, single ou artista"
+            aria-label="Buscar lançamentos"
+          />
+          <select aria-label="Filtrar por tipo de lançamento" value={releaseTypeFilter} onChange={(event) => setReleaseTypeFilter(event.target.value)}>
+            <option>Todos</option>
+            <option>Album</option>
+            <option>EP</option>
+            <option>Single</option>
+          </select>
+          <select aria-label="Ordenar lançamentos" value={releaseSort} onChange={(event) => setReleaseSort(event.target.value)}>
+            <option value="newest">Mais recentes</option>
+            <option value="oldest">Mais antigos</option>
+            <option value="title">Título (A–Z)</option>
+            <option value="rating">Melhor avaliados</option>
+          </select>
         </div>
         <div className="card-grid">
-          {featuredReleases.map((release) => <ReleaseCard key={release.id} release={release} />)}
+          {filteredReleases.map((release) => <ReleaseCard key={release.id} release={release} />)}
         </div>
-        {featuredReleases.length === 0 && (
-          <p className="explore-empty-state">Nenhum destaque encontrado neste gênero por enquanto.</p>
-        )}
-      </section>
-
-      <section className="subsection explore-release-section">
-        <div className="explore-section-heading">
-          <div>
-            <p className="eyebrow">Acabou de chegar</p>
-            <h2>Recentes</h2>
-          </div>
-        </div>
-        <div className="card-grid">
-          {recentReleases.map((release) => <ReleaseCard key={release.id} release={release} />)}
-        </div>
-        {recentReleases.length === 0 && (
-          <p className="explore-empty-state">Nenhum lançamento recente encontrado neste gênero.</p>
+        {filteredReleases.length === 0 && (
+          <p className="explore-empty-state">Nenhum lançamento corresponde aos filtros selecionados.</p>
         )}
       </section>
     </div>
@@ -1090,24 +1209,57 @@ function ExplorePage() {
 function ArtistsPage() {
   const [artists, setArtists] = useState([]);
   const [query, setQuery] = useState('');
+  const [genreFilter, setGenreFilter] = useState('Todos');
+  const [sortOrder, setSortOrder] = useState('name');
+  const [genreOptions, setGenreOptions] = useState(MUSIC_GENRES);
 
   useEffect(() => {
     api.get('/artists').then((res) => setArtists(res.data)).catch(console.error);
   }, []);
 
-  const filtered = artists.filter((artist) => (artist.name || '').toLowerCase().includes(query.toLowerCase()));
+  useEffect(() => {
+    api.get('/genres')
+      .then((response) => setGenreOptions(mergeGenreOptions(response.data)))
+      .catch(console.error);
+  }, []);
+
+  const normalizedQuery = normalizeGenre(query);
+  const filtered = artists
+    .filter((artist) => {
+      const artistGenres = splitGenreNames(artist.genre_names || artist.genre).map(normalizeGenre);
+      return (
+        normalizeGenre(artist.name).includes(normalizedQuery)
+        && (genreFilter === 'Todos' || artistGenres.includes(normalizeGenre(genreFilter)))
+      );
+    })
+    .sort((first, second) => sortOrder === 'releases'
+      ? Number(second.release_count || 0) - Number(first.release_count || 0)
+        || String(first.name).localeCompare(String(second.name))
+      : String(first.name).localeCompare(String(second.name)));
 
   return (
     <div className="content-stack">
       <div className="section-header">
         <h2>Artistas</h2>
+        <span className="explore-filter-label">{filtered.length} encontrados</span>
       </div>
-      <input className="search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar artistas" />
+      <div className="listing-filters">
+        <input className="search-input" type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar artistas" aria-label="Pesquisar artistas" />
+        <select aria-label="Filtrar artistas por gênero" value={genreFilter} onChange={(event) => setGenreFilter(event.target.value)}>
+          <option>Todos</option>
+          {genreOptions.map((genre) => <option key={genre}>{genre}</option>)}
+        </select>
+        <select aria-label="Ordenar artistas" value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}>
+          <option value="name">Nome (A–Z)</option>
+          <option value="releases">Mais lançamentos</option>
+        </select>
+      </div>
       <div className="artist-grid">
         {filtered.map((artist) => (
           <ArtistCard key={artist.id} artist={artist} />
         ))}
       </div>
+      {!filtered.length && <p className="explore-empty-state">Nenhum artista corresponde aos filtros selecionados.</p>}
     </div>
   );
 }
@@ -1125,6 +1277,9 @@ function FollowButton({ userId, initialFollowing = false, onChange }) {
   if (Number(user?.id) === Number(userId)) return null;
   if (!user) {
     return <Link to="/auth" className="follow-btn">Entrar para seguir</Link>;
+  }
+  if (!isAccountApproved(user)) {
+    return <button type="button" className="follow-btn" disabled title="Sua conta precisa ser aprovada para seguir pessoas.">Aguardando aprovação</button>;
   }
 
   const toggleFollow = async () => {
@@ -1189,6 +1344,9 @@ function ArtistFollowButton({ artistId }) {
   }, [artistId, user?.id]);
 
   if (!user) return <Link to="/auth" className="follow-btn">Entrar para seguir artista</Link>;
+  if (!isAccountApproved(user)) {
+    return <button type="button" className="follow-btn" disabled title="Sua conta precisa ser aprovada para seguir artistas.">Aguardando aprovação</button>;
+  }
 
   const toggleFollow = async () => {
     setIsSaving(true);
@@ -1241,6 +1399,9 @@ function ReviewLikeButton({ review, user, onChange }) {
       </Link>
     );
   }
+  if (!isAccountApproved(user)) {
+    return <button type="button" className="review-like-btn" disabled title="Sua conta precisa ser aprovada para curtir resenhas.">♡ Curtir · {likeCount}</button>;
+  }
 
   const toggleLike = async () => {
     setIsSaving(true);
@@ -1286,7 +1447,7 @@ function ReviewOwnerActions({ review, user, onUpdated, onDeleted }) {
   const [error, setError] = useState('');
   const isOwner = user && Number(user.id) === Number(review.user_id);
 
-  if (!isOwner) return null;
+  if (!isOwner || !isAccountApproved(user)) return null;
 
   const openEditor = () => {
     setRating(Number(review.rating));
@@ -1504,6 +1665,8 @@ function ReviewGif({ src }) {
 
 function SocialPage() {
   const [query, setQuery] = useState('');
+  const [followFilter, setFollowFilter] = useState('all');
+  const [userSort, setUserSort] = useState('name');
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1542,6 +1705,16 @@ function SocialPage() {
     };
   }, [query]);
 
+  const filteredUsers = users
+    .filter((person) => (
+      followFilter === 'all'
+      || (followFilter === 'following' ? Boolean(person.followed_by_user) : !person.followed_by_user)
+    ))
+    .sort((first, second) => userSort === 'followers'
+      ? Number(second.follower_count || 0) - Number(first.follower_count || 0)
+        || String(first.full_name || first.username).localeCompare(String(second.full_name || second.username))
+      : String(first.full_name || first.username).localeCompare(String(second.full_name || second.username)));
+
   return (
     <div className="content-stack social-page">
       <header className="social-hero glass-panel">
@@ -1565,14 +1738,25 @@ function SocialPage() {
             <p className="eyebrow">{query.trim() ? 'Resultados da busca' : 'Novas conexões'}</p>
             <h2>{query.trim() ? 'Pessoas' : 'Descubra pessoas'}</h2>
           </div>
-          {!isLoading && <span className="social-result-count">{users.length} perfis</span>}
+          {!isLoading && <span className="social-result-count">{filteredUsers.length} perfis</span>}
+        </div>
+        <div className="listing-filters">
+          <select aria-label="Filtrar pessoas por relacionamento" value={followFilter} onChange={(event) => setFollowFilter(event.target.value)}>
+            <option value="all">Todos os perfis</option>
+            <option value="following">Pessoas que sigo</option>
+            <option value="not-following">Pessoas que ainda não sigo</option>
+          </select>
+          <select aria-label="Ordenar pessoas" value={userSort} onChange={(event) => setUserSort(event.target.value)}>
+            <option value="name">Nome (A–Z)</option>
+            <option value="followers">Mais seguidores</option>
+          </select>
         </div>
         {error && <p className="error-text" role="alert">{error}</p>}
         {isLoading ? (
           <div className="loading-panel">Carregando pessoas…</div>
-        ) : users.length ? (
+        ) : filteredUsers.length ? (
           <div className="social-user-grid">
-            {users.map((person) => (
+            {filteredUsers.map((person) => (
               <article key={person.id} className="social-user-card glass-panel">
                 <Link to={`/profile/${person.id}`} className="social-user-link">
                   <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
@@ -1617,6 +1801,9 @@ function ArtistDetailPage() {
   const { artistId } = useParams();
   const { user } = useAuth();
   const [artistData, setArtistData] = useState(null);
+  const [releaseQuery, setReleaseQuery] = useState('');
+  const [releaseTypeFilter, setReleaseTypeFilter] = useState('Todos');
+  const [releaseSort, setReleaseSort] = useState('newest');
   const artistBannerUrl = artistData?.artist?.banner_url || artistData?.artist?.image_url || '';
 
   useEffect(() => {
@@ -1624,6 +1811,18 @@ function ArtistDetailPage() {
   }, [artistId]);
 
   if (!artistData) return <div className="loading-panel">Carregando artista…</div>;
+
+  const normalizedReleaseQuery = normalizeGenre(releaseQuery);
+  const visibleArtistReleases = artistData.releases
+    .filter((release) => (
+      (!normalizedReleaseQuery || normalizeGenre(release.title).includes(normalizedReleaseQuery))
+      && (releaseTypeFilter === 'Todos' || release.release_type === releaseTypeFilter)
+    ))
+    .sort((first, second) => {
+      if (releaseSort === 'oldest') return String(first.release_date).localeCompare(String(second.release_date));
+      if (releaseSort === 'title') return String(first.title).localeCompare(String(second.title));
+      return String(second.release_date).localeCompare(String(first.release_date));
+    });
 
   return (
     <div className="content-stack">
@@ -1671,9 +1870,30 @@ function ArtistDetailPage() {
         <div className="artist-section-heading">
           <p className="eyebrow">Conheça a discografia</p>
           <h2>Lançamentos populares</h2>
+          <span className="explore-filter-label">{visibleArtistReleases.length} encontrados</span>
+        </div>
+        <div className="listing-filters">
+          <input
+            type="search"
+            value={releaseQuery}
+            onChange={(event) => setReleaseQuery(event.target.value)}
+            placeholder="Buscar lançamento pelo título"
+            aria-label="Buscar lançamentos do artista"
+          />
+          <select aria-label="Filtrar discografia por tipo" value={releaseTypeFilter} onChange={(event) => setReleaseTypeFilter(event.target.value)}>
+            <option>Todos</option>
+            <option>Album</option>
+            <option>EP</option>
+            <option>Single</option>
+          </select>
+          <select aria-label="Ordenar discografia" value={releaseSort} onChange={(event) => setReleaseSort(event.target.value)}>
+            <option value="newest">Mais recentes</option>
+            <option value="oldest">Mais antigos</option>
+            <option value="title">Título (A–Z)</option>
+          </select>
         </div>
         <div className="artist-release-list">
-          {artistData.releases.length ? artistData.releases.map((release, index) => (
+          {visibleArtistReleases.length ? visibleArtistReleases.map((release, index) => (
             <Link key={release.id} to={`/releases/${release.id}`} className="artist-release-row">
               <span className="artist-release-rank">{index + 1}</span>
               <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
@@ -1683,7 +1903,9 @@ function ArtistDetailPage() {
               </span>
               <span className="artist-release-open">Abrir lançamento <span aria-hidden="true">↗</span></span>
             </Link>
-          )) : (
+          )) : artistData.releases.length ? (
+            <p className="artist-empty-state">Nenhum lançamento corresponde aos filtros.</p>
+          ) : (
             <p className="artist-empty-state">Este artista ainda não tem lançamentos cadastrados.</p>
           )}
         </div>
@@ -1734,6 +1956,11 @@ function ReleaseDetailPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [releaseInfo, setReleaseInfo] = useState(null);
+  const [trackQuery, setTrackQuery] = useState('');
+  const [explicitFilter, setExplicitFilter] = useState('all');
+  const [reviewQuery, setReviewQuery] = useState('');
+  const [reviewRatingFilter, setReviewRatingFilter] = useState('all');
+  const [reviewSort, setReviewSort] = useState('newest');
   const [reviewText, setReviewText] = useState('');
   const [reviewGifUrl, setReviewGifUrl] = useState('');
   const [rating, setRating] = useState(8);
@@ -1777,7 +2004,7 @@ function ReleaseDetailPage() {
   }, [releaseId, user]);
 
   useEffect(() => {
-    if (!releaseInfo || !user || searchParams.get('review') !== '1') return;
+    if (!releaseInfo || !isAccountApproved(user) || searchParams.get('review') !== '1') return;
     setIsReviewModalOpen(true);
     const nextSearchParams = new URLSearchParams(searchParams);
     nextSearchParams.delete('review');
@@ -1917,6 +2144,23 @@ function ReleaseDetailPage() {
   if (!releaseInfo) return <div className="loading-panel">Carregando lançamento…</div>;
 
   const { release, tracks, reviews } = releaseInfo;
+  const canWrite = isAccountApproved(user);
+  const normalizedTrackQuery = normalizeGenre(trackQuery);
+  const visibleTracks = tracks.filter((track) => (
+    (!normalizedTrackQuery || normalizeGenre(track.title).includes(normalizedTrackQuery))
+    && (explicitFilter === 'all' || (explicitFilter === 'explicit' ? Boolean(track.explicit) : !track.explicit))
+  ));
+  const normalizedReviewQuery = normalizeGenre(reviewQuery);
+  const visibleReviews = reviews
+    .filter((review) => (
+      (!normalizedReviewQuery || normalizeGenre(`${review.username} ${review.full_name} ${review.review_text}`).includes(normalizedReviewQuery))
+      && (reviewRatingFilter === 'all' || Number(review.rating || 0) >= Number(reviewRatingFilter))
+    ))
+    .sort((first, second) => {
+      if (reviewSort === 'rating') return Number(second.rating || 0) - Number(first.rating || 0);
+      if (reviewSort === 'likes') return Number(second.like_count || 0) - Number(first.like_count || 0);
+      return String(second.created_at).localeCompare(String(first.created_at));
+    });
   const selectedLyricsTrack = tracks.find((track) => track.id === openLyricsTrackId);
   const isFutureRelease = new Date(release.release_date) > new Date();
   const formattedReleaseDate = release.release_date ? new Date(release.release_date + 'T00:00:00').toLocaleDateString('pt-BR', {
@@ -1975,12 +2219,12 @@ function ReleaseDetailPage() {
           </p>
 
           <div className="action-row">
-            {user && (
+            {canWrite && (
               <button className="primary-btn" onClick={togglePreSave} type="button">
                 {preSaved ? 'Remover pré-save' : isFutureRelease ? 'Pré-salvar lançamento' : 'Salvar lançamento'}
               </button>
             )}
-            {user && (
+            {canWrite && (
               <button className="secondary-btn" onClick={() => {
                 setMessage('');
                 setIsReviewModalOpen(true);
@@ -2013,7 +2257,7 @@ function ReleaseDetailPage() {
         <div className="section-heading-row">
           <h3>Lista de faixas</h3>
           <div className="tracklist-playlist-control">
-            {user && playlists.length > 0 && (
+            {canWrite && playlists.length > 0 && (
               <label>
                 <span>Adicionar em</span>
                 <select value={selectedPlaylistId} onChange={(event) => setSelectedPlaylistId(event.target.value)}>
@@ -2023,15 +2267,29 @@ function ReleaseDetailPage() {
                 </select>
               </label>
             )}
-            {user && playlists.length === 0 && (
+            {canWrite && playlists.length === 0 && (
               <Link to={`/profile/${user.id}?tab=playlists`} className="tracklist-create-playlist">Criar playlist</Link>
             )}
-            <span>{tracks.length} faixas</span>
+            <span>{visibleTracks.length} de {tracks.length} faixas</span>
           </div>
         </div>
         {playlistActionMessage && <p className="playlist-action-message" role="status">{playlistActionMessage}</p>}
+        <div className="listing-filters">
+          <input
+            type="search"
+            value={trackQuery}
+            onChange={(event) => setTrackQuery(event.target.value)}
+            placeholder="Buscar faixa pelo título"
+            aria-label="Buscar faixas"
+          />
+          <select aria-label="Filtrar faixas por conteúdo explícito" value={explicitFilter} onChange={(event) => setExplicitFilter(event.target.value)}>
+            <option value="all">Todas as faixas</option>
+            <option value="explicit">Explícitas</option>
+            <option value="clean">Sem conteúdo explícito</option>
+          </select>
+        </div>
         <div className="tracklist">
-          {tracks.map((track) => {
+          {visibleTracks.map((track) => {
             const isLyricsOpen = openLyricsTrackId === track.id;
             return (
               <div key={track.id} className={`track-item glass-panel ${isLyricsOpen ? 'is-open' : ''}`}>
@@ -2075,7 +2333,7 @@ function ReleaseDetailPage() {
                         {isLyricsOpen ? 'Ocultar letra' : 'Ver letra'}
                       </button>
                     )}
-                    {user && (
+                    {canWrite && (
                       <button
                         type="button"
                         className={`ghost-btn track-like-btn${favoriteTrackIds.includes(track.id) ? ' is-favorite' : ''}`}
@@ -2086,7 +2344,7 @@ function ReleaseDetailPage() {
                         {favoriteTrackIds.includes(track.id) ? '♥' : '♡'}
                       </button>
                     )}
-                    {user && (
+                    {canWrite && (
                       <button type="button" className="ghost-btn track-compact-btn playlist-btn" onClick={() => addTrackToPlaylist(track.id)}>
                         <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M3.5 5h8M3.5 9h8M3.5 13h5" />
@@ -2101,6 +2359,7 @@ function ReleaseDetailPage() {
               </div>
             );
           })}
+          {!visibleTracks.length && <p className="explore-empty-state">Nenhuma faixa corresponde aos filtros.</p>}
         </div>
       </section>
 
@@ -2189,7 +2448,7 @@ function ReleaseDetailPage() {
         </div>
       )}
 
-      {isReviewModalOpen && (
+      {isReviewModalOpen && canWrite && (
         <div className="modal-backdrop review-backdrop" onClick={() => !isSubmittingReview && setIsReviewModalOpen(false)}>
           <div
             className="review-modal glass-panel"
@@ -2313,9 +2572,31 @@ function ReleaseDetailPage() {
       )}
 
       <section className="subsection">
-        <h3>Notas sociais</h3>
+        <div className="section-heading-row">
+          <h3>Notas sociais</h3>
+          <span>{visibleReviews.length} de {reviews.length}</span>
+        </div>
+        <div className="listing-filters">
+          <input
+            type="search"
+            value={reviewQuery}
+            onChange={(event) => setReviewQuery(event.target.value)}
+            placeholder="Buscar por pessoa ou comentário"
+            aria-label="Buscar resenhas do lançamento"
+          />
+          <select aria-label="Filtrar resenhas por nota" value={reviewRatingFilter} onChange={(event) => setReviewRatingFilter(event.target.value)}>
+            <option value="all">Todas as notas</option>
+            <option value="8">Nota 8 ou mais</option>
+            <option value="5">Nota 5 ou mais</option>
+          </select>
+          <select aria-label="Ordenar resenhas" value={reviewSort} onChange={(event) => setReviewSort(event.target.value)}>
+            <option value="newest">Mais recentes</option>
+            <option value="rating">Melhor avaliadas</option>
+            <option value="likes">Mais curtidas</option>
+          </select>
+        </div>
         <div className="feed-list">
-          {reviews.map((review) => (
+          {visibleReviews.map((review) => (
             <div key={review.id} className="review-feed-item glass-panel">
               <div className="review-head">
                 <Link to={`/profile/${review.user_id}`} className="mini-user review-author-link">
@@ -2344,6 +2625,7 @@ function ReleaseDetailPage() {
               </div>
             </div>
           ))}
+          {!visibleReviews.length && <p className="explore-empty-state">Nenhuma resenha corresponde aos filtros.</p>}
         </div>
       </section>
     </div>
@@ -2358,6 +2640,7 @@ function PlaylistPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
+  const [trackQuery, setTrackQuery] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', cover_url: '' });
@@ -2386,6 +2669,7 @@ function PlaylistPage() {
   }, [playlistId]);
 
   const isOwner = Boolean(user && playlistData && Number(user.id) === Number(playlistData.playlist.user_id));
+  const canManagePlaylist = isOwner && isAccountApproved(user);
   const reloadPlaylist = async () => {
     const response = await api.get(`/playlists/${playlistId}`);
     setPlaylistData(response.data);
@@ -2464,6 +2748,13 @@ function PlaylistPage() {
 
   const { playlist, tracks } = playlistData;
   const playlistCover = playlist.cover_url || tracks[0]?.release_cover || imagePlaceholder;
+  const normalizedTrackQuery = normalizeGenre(trackQuery);
+  const visibleTracks = tracks
+    .map((track, index) => ({ track, index }))
+    .filter(({ track }) => (
+      !normalizedTrackQuery
+      || normalizeGenre(`${track.track_title} ${track.artist_name} ${track.release_title}`).includes(normalizedTrackQuery)
+    ));
 
   return (
     <div className="content-stack playlist-page">
@@ -2483,7 +2774,7 @@ function PlaylistPage() {
           <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
           <span>{tracks.length} {tracks.length === 1 ? 'música' : 'músicas'}</span>
         </div>
-        {isOwner && (
+        {canManagePlaylist && (
           <div className="playlist-hero-actions">
             <button type="button" className="secondary-btn" onClick={() => setIsEditing((value) => !value)}>
               {isEditing ? 'Cancelar edição' : 'Editar playlist'}
@@ -2497,7 +2788,7 @@ function PlaylistPage() {
 
       {actionError && <p className="playlist-form-error" role="alert">{actionError}</p>}
 
-      {isEditing && isOwner && (
+      {isEditing && canManagePlaylist && (
         <form className="playlist-edit-form glass-panel" onSubmit={savePlaylist}>
           <label className="auth-field">Nome da playlist
             <input
@@ -2533,11 +2824,23 @@ function PlaylistPage() {
       <section className="playlist-track-section">
         <div className="section-heading-row">
           <h2>Músicas</h2>
-          <span>{tracks.length} {tracks.length === 1 ? 'faixa' : 'faixas'}</span>
+          <span>{visibleTracks.length} de {tracks.length} faixas</span>
         </div>
-        {tracks.length ? (
+        {tracks.length > 0 && (
+          <div className="listing-filters playlist-track-filters">
+            <input
+              type="search"
+              value={trackQuery}
+              onChange={(event) => setTrackQuery(event.target.value)}
+              placeholder="Buscar por faixa, artista ou álbum"
+              aria-label="Buscar músicas da playlist"
+            />
+          </div>
+        )}
+        {canManagePlaylist && trackQuery.trim() && <p className="image-drop-hint">Limpe a busca para alterar a ordem das faixas.</p>}
+        {visibleTracks.length ? (
           <ol className="playlist-track-list">
-            {tracks.map((track, index) => (
+            {visibleTracks.map(({ track, index }) => (
               <li className="playlist-track-row glass-panel" key={`${track.track_id}-${index}`}>
                 <span className="playlist-track-position">{String(index + 1).padStart(2, '0')}</span>
                 <img
@@ -2553,21 +2856,23 @@ function PlaylistPage() {
                   <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">Ouvir</a>
                 )}
                 <span className="playlist-track-duration">{track.duration || '—'}</span>
-                {isOwner && (
+                {canManagePlaylist && (
                   <div className="playlist-track-owner-actions">
-                    <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0} aria-label={`Mover ${track.track_title} para cima`}>↑</button>
-                    <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === tracks.length - 1} aria-label={`Mover ${track.track_title} para baixo`}>↓</button>
+                    <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0 || Boolean(trackQuery.trim())} aria-label={`Mover ${track.track_title} para cima`}>↑</button>
+                    <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === tracks.length - 1 || Boolean(trackQuery.trim())} aria-label={`Mover ${track.track_title} para baixo`}>↓</button>
                     <button type="button" onClick={() => removeTrack(track.track_id)} aria-label={`Remover ${track.track_title} da playlist`}>×</button>
                   </div>
                 )}
               </li>
             ))}
           </ol>
+        ) : tracks.length > 0 ? (
+          <p className="explore-empty-state">Nenhuma faixa corresponde à busca.</p>
         ) : (
           <div className="profile-empty-state glass-panel">
             <span aria-hidden="true">♫</span>
             <h3>Esta playlist ainda está vazia</h3>
-            <p>{isOwner ? 'Abra um álbum ou EP e adicione músicas usando o botão “Playlist”.' : 'O proprietário ainda não adicionou músicas.'}</p>
+            <p>{canManagePlaylist ? 'Abra um álbum ou EP e adicione músicas usando o botão “Playlist”.' : 'O proprietário ainda não adicionou músicas.'}</p>
             <Link to="/explore" className="secondary-btn">Explorar lançamentos</Link>
           </div>
         )}
@@ -2595,8 +2900,13 @@ function ProfilePage() {
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
   const [socialListMode, setSocialListMode] = useState('');
   const [socialUsers, setSocialUsers] = useState([]);
+  const [socialListQuery, setSocialListQuery] = useState('');
   const [socialListError, setSocialListError] = useState('');
   const [isLoadingSocialUsers, setIsLoadingSocialUsers] = useState(false);
+  const [profileReviewQuery, setProfileReviewQuery] = useState('');
+  const [profileReviewRatingFilter, setProfileReviewRatingFilter] = useState('all');
+  const [profilePlaylistQuery, setProfilePlaylistQuery] = useState('');
+  const [favoriteQuery, setFavoriteQuery] = useState('');
 
   const loadProfile = async () => {
     const target = userId || user?.id;
@@ -2661,6 +2971,7 @@ function ProfilePage() {
 
     setSocialListMode(mode);
     setSocialUsers([]);
+    setSocialListQuery('');
     setSocialListError('');
     setIsLoadingSocialUsers(true);
     try {
@@ -2703,7 +3014,27 @@ function ProfilePage() {
   if (!profile) return <div className="loading-panel">Carregando perfil…</div>;
 
   const isOwner = Number(user?.id) === Number(profile.user.id);
+  const canManageProfile = isOwner && isAccountApproved(user);
   const profileBannerUrl = profile.user.banner_url || 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80';
+  const normalizedSocialListQuery = normalizeGenre(socialListQuery);
+  const visibleSocialUsers = socialUsers.filter((person) => (
+    normalizeGenre(`${person.full_name} ${person.username}`).includes(normalizedSocialListQuery)
+  ));
+  const normalizedProfileReviewQuery = normalizeGenre(profileReviewQuery);
+  const visibleProfileReviews = profile.reviews.filter((review) => (
+    (!normalizedProfileReviewQuery || normalizeGenre(`${review.release_title} ${review.artist_name} ${review.review_text}`).includes(normalizedProfileReviewQuery))
+    && (profileReviewRatingFilter === 'all' || Number(review.rating || 0) >= Number(profileReviewRatingFilter))
+  ));
+  const normalizedProfilePlaylistQuery = normalizeGenre(profilePlaylistQuery);
+  const visibleProfilePlaylists = profile.playlists.filter((playlist) => (
+    !normalizedProfilePlaylistQuery
+    || normalizeGenre(`${playlist.name} ${playlist.description}`).includes(normalizedProfilePlaylistQuery)
+  ));
+  const normalizedFavoriteQuery = normalizeGenre(favoriteQuery);
+  const visibleFavorites = profile.favorites.filter((favorite) => (
+    !normalizedFavoriteQuery
+    || normalizeGenre(`${favorite.track_title} ${favorite.release_title} ${favorite.artist_name}`).includes(normalizedFavoriteQuery)
+  ));
 
   return (
     <div className="content-stack profile-page">
@@ -2746,13 +3077,24 @@ function ProfilePage() {
             </div>
             <button type="button" className="secondary-btn compact-btn" onClick={() => setSocialListMode('')}>Fechar</button>
           </div>
+          {!isLoadingSocialUsers && socialUsers.length > 0 && (
+            <div className="listing-filters">
+              <input
+                type="search"
+                value={socialListQuery}
+                onChange={(event) => setSocialListQuery(event.target.value)}
+                placeholder="Buscar pessoa por nome ou usuário"
+                aria-label="Buscar pessoas nesta lista"
+              />
+            </div>
+          )}
           {isLoadingSocialUsers ? (
             <p className="profile-social-list-message">Carregando pessoas…</p>
           ) : socialListError ? (
             <p className="error-text" role="alert">{socialListError}</p>
-          ) : socialUsers.length ? (
+          ) : visibleSocialUsers.length ? (
             <div className="profile-social-user-list">
-              {socialUsers.map((person) => (
+              {visibleSocialUsers.map((person) => (
                 <article key={person.id} className="profile-social-user">
                   <Link to={`/profile/${person.id}`} className="social-user-link">
                     <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
@@ -2765,6 +3107,8 @@ function ProfilePage() {
                 </article>
               ))}
             </div>
+          ) : socialUsers.length ? (
+            <p className="profile-social-list-message">Nenhuma pessoa corresponde à busca.</p>
           ) : (
             <p className="profile-social-list-message">Ainda não há pessoas nesta lista.</p>
           )}
@@ -2778,14 +3122,14 @@ function ProfilePage() {
           <button type="button" role="tab" aria-selected={activeTab === 'playlists'} className={activeTab === 'playlists' ? 'is-active' : ''} onClick={() => setActiveTab('playlists')}>Playlists</button>
           <button type="button" role="tab" aria-selected={activeTab === 'favorites'} className={activeTab === 'favorites' ? 'is-active' : ''} onClick={() => setActiveTab('favorites')}>Curtidas</button>
         </div>
-        {isOwner && (
+        {canManageProfile && (
           <button type="button" className="secondary-btn" onClick={() => setIsEditing((value) => !value)}>
             {isEditing ? 'Cancelar' : 'Editar perfil'}
           </button>
         )}
       </div>
 
-      {isEditing && (
+      {isEditing && canManageProfile && (
         <div className="profile-edit glass-panel">
           <h3>Editar perfil</h3>
           <div className="form-grid">
@@ -2860,12 +3204,26 @@ function ProfilePage() {
             <div>
               <p className="eyebrow">Opiniões e descobertas</p>
               <h2>Avaliações</h2>
-              <p>{profile.reviews.length} {profile.reviews.length === 1 ? 'lançamento avaliado' : 'lançamentos avaliados'}</p>
+              <p>{visibleProfileReviews.length} de {profile.reviews.length} avaliações</p>
             </div>
           </div>
-          {profile.reviews.length ? (
+          <div className="listing-filters">
+            <input
+              type="search"
+              value={profileReviewQuery}
+              onChange={(event) => setProfileReviewQuery(event.target.value)}
+              placeholder="Buscar por álbum, artista ou comentário"
+              aria-label="Buscar avaliações do perfil"
+            />
+            <select aria-label="Filtrar avaliações por nota" value={profileReviewRatingFilter} onChange={(event) => setProfileReviewRatingFilter(event.target.value)}>
+              <option value="all">Todas as notas</option>
+              <option value="8">Nota 8 ou mais</option>
+              <option value="5">Nota 5 ou mais</option>
+            </select>
+          </div>
+          {visibleProfileReviews.length ? (
             <div className="profile-review-list">
-              {profile.reviews.map((review) => (
+              {visibleProfileReviews.map((review) => (
                 <article key={review.id} className="profile-review-card glass-panel">
                   <Link to={`/releases/${review.release_id}`} className="profile-review-artwork" aria-label={`Abrir ${review.release_title}`}>
                     <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
@@ -2892,6 +3250,8 @@ function ProfilePage() {
                 </article>
               ))}
             </div>
+          ) : profile.reviews.length ? (
+            <p className="explore-empty-state">Nenhuma avaliação corresponde aos filtros.</p>
           ) : (
             <div className="profile-empty-state glass-panel">
               <span aria-hidden="true">✦</span>
@@ -2909,11 +3269,11 @@ function ProfilePage() {
             <div>
               <p className="eyebrow">Trilhas para cada momento</p>
               <h2>Playlists</h2>
-              <p>{profile.playlists.length} {profile.playlists.length === 1 ? 'playlist criada' : 'playlists criadas'}</p>
+              <p>{visibleProfilePlaylists.length} de {profile.playlists.length} playlists</p>
             </div>
           </div>
 
-          {isOwner && (
+          {canManageProfile && (
             <form className="playlist-create-panel glass-panel" onSubmit={(event) => {
               event.preventDefault();
               void createPlaylist();
@@ -2963,9 +3323,18 @@ function ProfilePage() {
             </form>
           )}
 
-          {profile.playlists.length ? (
+          <div className="listing-filters">
+            <input
+              type="search"
+              value={profilePlaylistQuery}
+              onChange={(event) => setProfilePlaylistQuery(event.target.value)}
+              placeholder="Buscar playlists por nome ou descrição"
+              aria-label="Buscar playlists do perfil"
+            />
+          </div>
+          {visibleProfilePlaylists.length ? (
             <div className="profile-playlist-grid">
-              {profile.playlists.map((playlist) => (
+              {visibleProfilePlaylists.map((playlist) => (
                 <Link to={`/playlists/${playlist.id}`} key={playlist.id} className="profile-playlist-card glass-panel">
                   <div className="profile-playlist-artwork">
                     <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
@@ -2980,6 +3349,8 @@ function ProfilePage() {
                 </Link>
               ))}
             </div>
+          ) : profile.playlists.length ? (
+            <p className="explore-empty-state">Nenhuma playlist corresponde à busca.</p>
           ) : (
             <div className="profile-empty-state glass-panel">
               <span aria-hidden="true">♫</span>
@@ -2996,12 +3367,21 @@ function ProfilePage() {
             <div>
               <p className="eyebrow">Músicas que ficam com você</p>
               <h2>Curtidas</h2>
-              <p>{profile.favorites.length} {profile.favorites.length === 1 ? 'música salva' : 'músicas salvas'}</p>
+              <p>{visibleFavorites.length} de {profile.favorites.length} músicas curtidas</p>
             </div>
           </div>
-          {profile.favorites.length ? (
+          <div className="listing-filters">
+            <input
+              type="search"
+              value={favoriteQuery}
+              onChange={(event) => setFavoriteQuery(event.target.value)}
+              placeholder="Buscar música, artista ou álbum"
+              aria-label="Buscar músicas curtidas"
+            />
+          </div>
+          {visibleFavorites.length ? (
             <div className="profile-favorite-grid">
-              {profile.favorites.map((favorite) => (
+              {visibleFavorites.map((favorite) => (
                 <Link key={favorite.id} to={`/releases/${favorite.release_id}`} className="profile-favorite-card glass-panel">
                   <img src={favorite.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
                   <div>
@@ -3014,6 +3394,8 @@ function ProfilePage() {
                 </Link>
               ))}
             </div>
+          ) : profile.favorites.length ? (
+            <p className="explore-empty-state">Nenhuma música corresponde à busca.</p>
           ) : (
             <div className="profile-empty-state glass-panel">
               <span aria-hidden="true">♥</span>
@@ -3094,8 +3476,8 @@ function AuthPage() {
         <form onSubmit={submit} className="auth-form">
           {mode === 'register' && (
             <>
-              <label className="auth-field">Nome completo
-                <input autoComplete="name" placeholder="Como podemos chamar você?" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
+              <label className="auth-field">Nome
+                <input autoComplete="given-name" placeholder="Como podemos chamar você?" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} required />
               </label>
               <label className="auth-field">E-mail
                 <input type="email" autoComplete="email" placeholder="voce@email.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
@@ -3214,6 +3596,13 @@ function AdminPage() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminReviews, setAdminReviews] = useState([]);
   const [moderationQuery, setModerationQuery] = useState('');
+  const [moderationUserStatus, setModerationUserStatus] = useState('all');
+  const [moderationReviewRating, setModerationReviewRating] = useState('all');
+  const [artistListQuery, setArtistListQuery] = useState('');
+  const [artistListGenre, setArtistListGenre] = useState('Todos');
+  const [releaseListQuery, setReleaseListQuery] = useState('');
+  const [releaseListType, setReleaseListType] = useState('Todos');
+  const [featuredListQuery, setFeaturedListQuery] = useState('');
   const [isLoadingModeration, setIsLoadingModeration] = useState(false);
   const [artistImageUploads, setArtistImageUploads] = useState(0);
   const [isReleaseCoverUploading, setIsReleaseCoverUploading] = useState(false);
@@ -3234,6 +3623,9 @@ function AdminPage() {
     description: '',
     tracks: [{ title: '', duration: '3:00', explicit: false, youtube_url: '', lyrics: '', translation: '' }],
   });
+  const [genreOptions, setGenreOptions] = useState(MUSIC_GENRES);
+  const [newGenreName, setNewGenreName] = useState('');
+  const [isCreatingGenre, setIsCreatingGenre] = useState(false);
   const [featuredForm, setFeaturedForm] = useState({ release_id: '', sort_order: 1, banner_url: '', description: '' });
   const [isFeaturedBannerUploading, setIsFeaturedBannerUploading] = useState(false);
 
@@ -3245,14 +3637,16 @@ function AdminPage() {
 
   const refreshCatalogLists = async () => {
     try {
-      const [artistsRes, releasesRes, featuredRes] = await Promise.all([
+      const [artistsRes, releasesRes, featuredRes, genresRes] = await Promise.all([
         api.get('/artists'),
         api.get('/releases'),
         api.get('/admin/featured'),
+        api.get('/genres'),
       ]);
       setArtistList(artistsRes.data || []);
       setReleaseList(releasesRes.data || []);
       setFeaturedList(featuredRes.data || []);
+      setGenreOptions(mergeGenreOptions(genresRes.data));
     } catch (error) {
       console.error(error);
       reportAdminError(error, 'Não foi possível carregar o catálogo. Consulte os logs do servidor.');
@@ -3267,17 +3661,25 @@ function AdminPage() {
   }, [user]);
 
   useEffect(() => {
-    if (activeAdminSection !== 'moderation') return undefined;
+    if (!['approvals', 'moderation'].includes(activeAdminSection)) return undefined;
     let active = true;
     setIsLoadingModeration(true);
-    Promise.all([api.get('/admin/users'), api.get('/admin/reviews')])
+    const userRequest = activeAdminSection === 'approvals'
+      ? api.get('/admin/users?approval=pending')
+      : api.get('/admin/users');
+    const reviewRequest = activeAdminSection === 'moderation'
+      ? api.get('/admin/reviews')
+      : Promise.resolve({ data: [] });
+    Promise.all([userRequest, reviewRequest])
       .then(([usersResponse, reviewsResponse]) => {
         if (!active) return;
         setAdminUsers(usersResponse.data || []);
-        setAdminReviews(reviewsResponse.data || []);
+        if (activeAdminSection === 'moderation') setAdminReviews(reviewsResponse.data || []);
       })
       .catch((error) => {
-        if (active) reportAdminError(error, 'Não foi possível carregar as ferramentas de moderação.');
+        if (active) reportAdminError(error, activeAdminSection === 'approvals'
+          ? 'Não foi possível carregar os perfis pendentes.'
+          : 'Não foi possível carregar as ferramentas de moderação.');
       })
       .finally(() => {
         if (active) setIsLoadingModeration(false);
@@ -3323,10 +3725,7 @@ function AdminPage() {
 
   const toggleReleaseGenre = (genre) => {
     setReleaseForm((current) => {
-      const currentGenres = String(current.genre || '')
-        .split(/[,/|]/)
-        .map((item) => item.trim())
-        .filter(Boolean);
+      const currentGenres = splitGenreNames(current.genre);
       const selected = currentGenres.some((item) => normalizeGenre(item) === normalizeGenre(genre));
       const nextGenres = selected
         ? currentGenres.filter((item) => normalizeGenre(item) !== normalizeGenre(genre))
@@ -3334,6 +3733,47 @@ function AdminPage() {
 
       return { ...current, genre: nextGenres.join(', ') };
     });
+  };
+
+  const selectReleaseGenre = (genre) => {
+    setReleaseForm((current) => {
+      const currentGenres = splitGenreNames(current.genre);
+      if (currentGenres.some((item) => normalizeGenre(item) === normalizeGenre(genre))) return current;
+      return { ...current, genre: [...currentGenres, genre].join(', ') };
+    });
+  };
+
+  const createReleaseGenre = async () => {
+    const name = newGenreName.trim().replace(/\s+/g, ' ');
+    if (!name) return;
+
+    setAdminError('');
+    setAdminNotice('');
+    const existing = genreOptions.find((genre) => normalizeGenre(genre) === normalizeGenre(name));
+    if (existing) {
+      selectReleaseGenre(existing);
+      setNewGenreName('');
+      setAdminNotice(`O gênero "${existing}" já existe e foi selecionado.`);
+      return;
+    }
+
+    setIsCreatingGenre(true);
+    try {
+      const response = await api.post('/genres', { name });
+      const createdGenre = response.data?.name;
+      if (typeof createdGenre !== 'string' || !createdGenre.trim()) {
+        throw new Error('A resposta do servidor não contém o gênero criado.');
+      }
+
+      setGenreOptions((current) => mergeGenreOptions([...current, createdGenre]));
+      selectReleaseGenre(createdGenre);
+      setNewGenreName('');
+      setAdminNotice(`Gênero "${createdGenre}" criado e selecionado.`);
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível criar o gênero.');
+    } finally {
+      setIsCreatingGenre(false);
+    }
   };
 
   const addTrackRow = () => {
@@ -3352,6 +3792,7 @@ function AdminPage() {
 
   const resetReleaseForm = () => {
     setEditingReleaseId(null);
+    setNewGenreName('');
     setReleaseForm({
       title: '',
       artist_id: '',
@@ -3536,6 +3977,7 @@ function AdminPage() {
       description: detail.data.release.description || '',
       tracks,
     });
+    setGenreOptions((current) => mergeGenreOptions([...current, ...splitGenreNames(detail.data.release.genre)]));
     setEditingReleaseId(release.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -3615,6 +4057,18 @@ function AdminPage() {
     }
   };
 
+  const handleUserApprove = async (targetUser) => {
+    setAdminError('');
+    setAdminNotice('');
+    try {
+      await api.post(`/admin/users/${targetUser.id}/approve`);
+      setAdminUsers((current) => current.filter((item) => item.id !== targetUser.id));
+      setAdminNotice(`O perfil de ${targetUser.full_name || targetUser.username} foi aprovado e recebeu uma notificação.`);
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível aprovar este perfil.');
+    }
+  };
+
   const handleAdminReviewDelete = async (review) => {
     if (!window.confirm(`Remover a resenha de ${review.full_name || review.username} sobre ${review.release_title}? O autor será notificado.`)) return;
     setAdminError('');
@@ -3632,18 +4086,32 @@ function AdminPage() {
     }
   };
 
-  const moderationSearch = moderationQuery.trim().toLocaleLowerCase();
+  const moderationSearch = normalizeGenre(moderationQuery);
   const filteredAdminUsers = adminUsers.filter((item) => (
-    !moderationSearch
-    || `${item.full_name || ''} ${item.username || ''} ${item.email || ''}`.toLocaleLowerCase().includes(moderationSearch)
+    Number(item.is_approved)
+    && (!moderationSearch || normalizeGenre(`${item.full_name || ''} ${item.username || ''} ${item.email || ''}`).includes(moderationSearch))
+    && (moderationUserStatus === 'all' || (moderationUserStatus === 'suspended' ? Boolean(Number(item.is_suspended)) : !Number(item.is_suspended)))
   ));
   const filteredAdminReviews = adminReviews.filter((item) => (
-    !moderationSearch
-    || `${item.full_name || ''} ${item.username || ''} ${item.release_title || ''} ${item.artist_name || ''} ${item.review_text || ''}`.toLocaleLowerCase().includes(moderationSearch)
+    (!moderationSearch || normalizeGenre(`${item.full_name || ''} ${item.username || ''} ${item.release_title || ''} ${item.artist_name || ''} ${item.review_text || ''}`).includes(moderationSearch))
+    && (moderationReviewRating === 'all' || Number(item.rating || 0) >= Number(moderationReviewRating))
   ));
-  const selectedReleaseGenres = String(releaseForm.genre || '')
-    .split(/[,/|]/)
-    .map(normalizeGenre);
+  const normalizedArtistListQuery = normalizeGenre(artistListQuery);
+  const filteredAdminArtists = artistList.filter((artist) => (
+    (!normalizedArtistListQuery || normalizeGenre(`${artist.name} ${artist.genre_names || artist.genre}`).includes(normalizedArtistListQuery))
+    && (artistListGenre === 'Todos' || splitGenreNames(artist.genre_names || artist.genre).map(normalizeGenre).includes(normalizeGenre(artistListGenre)))
+  ));
+  const normalizedReleaseListQuery = normalizeGenre(releaseListQuery);
+  const filteredAdminReleases = releaseList.filter((release) => (
+    (!normalizedReleaseListQuery || normalizeGenre(`${release.title} ${release.artist_name}`).includes(normalizedReleaseListQuery))
+    && (releaseListType === 'Todos' || release.release_type === releaseListType)
+  ));
+  const normalizedFeaturedListQuery = normalizeGenre(featuredListQuery);
+  const filteredFeaturedList = featuredList.filter((featured) => (
+    !normalizedFeaturedListQuery
+    || normalizeGenre(`${featured.title} ${featured.artist_name} ${featured.description}`).includes(normalizedFeaturedListQuery)
+  ));
+  const selectedReleaseGenres = splitGenreNames(releaseForm.genre).map(normalizeGenre);
 
   return (
     <div className="content-stack">
@@ -3662,6 +4130,7 @@ function AdminPage() {
         {[
           { id: 'catalog', label: 'Catálogo', description: 'Artistas e lançamentos' },
           { id: 'homepage', label: 'Destaques', description: 'Carrossel da página inicial' },
+          { id: 'approvals', label: 'Aprovações', description: 'Perfis aguardando revisão' },
           { id: 'moderation', label: 'Moderação', description: 'Perfis e resenhas' },
         ].map((section) => (
           <button
@@ -3787,7 +4256,7 @@ function AdminPage() {
               <span>Selecione um ou mais</span>
             </div>
             <div className="release-genre-tags" role="group" aria-label="Gêneros musicais">
-              {MUSIC_GENRES.map((genre) => (
+              {genreOptions.map((genre) => (
                 <button
                   type="button"
                   className={`release-genre-tag${selectedReleaseGenres.includes(normalizeGenre(genre)) ? ' is-selected' : ''}`}
@@ -3799,14 +4268,28 @@ function AdminPage() {
                 </button>
               ))}
             </div>
-            <label className="release-genre-custom">
-              <span>Outros gêneros (opcional)</span>
+            <div className="release-genre-create">
               <input
-                placeholder="Digite gêneros separados por vírgula"
-                value={releaseForm.genre}
-                onChange={(e) => setReleaseForm({ ...releaseForm, genre: e.target.value })}
+                aria-label="Nome do novo gênero"
+                placeholder="Nome do novo gênero"
+                value={newGenreName}
+                onChange={(event) => setNewGenreName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void createReleaseGenre();
+                  }
+                }}
               />
-            </label>
+              <button
+                type="button"
+                className="secondary-btn compact-btn"
+                disabled={!newGenreName.trim() || isCreatingGenre}
+                onClick={createReleaseGenre}
+              >
+                {isCreatingGenre ? 'Criando…' : '+ Criar tag'}
+              </button>
+            </div>
           </div>
           <textarea placeholder="Descrição" value={releaseForm.description} onChange={(e) => setReleaseForm({ ...releaseForm, description: e.target.value })} />
 
@@ -3867,9 +4350,22 @@ function AdminPage() {
           </div>
 
           <div className="admin-listing-panel glass-panel">
-            <div className="section-header compact"><h3>Artistas cadastrados <span className="admin-count">{artistList.length}</span></h3></div>
+            <div className="section-header compact"><h3>Artistas cadastrados <span className="admin-count">{filteredAdminArtists.length}/{artistList.length}</span></h3></div>
+            <div className="listing-filters">
+              <input
+                type="search"
+                value={artistListQuery}
+                onChange={(event) => setArtistListQuery(event.target.value)}
+                placeholder="Buscar artista ou gênero"
+                aria-label="Buscar artistas cadastrados"
+              />
+              <select aria-label="Filtrar artistas cadastrados por gênero" value={artistListGenre} onChange={(event) => setArtistListGenre(event.target.value)}>
+                <option>Todos</option>
+                {genreOptions.map((genre) => <option key={genre}>{genre}</option>)}
+              </select>
+            </div>
             <div className="admin-list-grid">
-              {artistList.map((artist) => (
+              {filteredAdminArtists.map((artist) => (
                 <div key={artist.id} className="admin-list-item">
                   <img src={artist.image_url || artist.banner_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt="" />
                   <div className="admin-list-copy">
@@ -3882,14 +4378,29 @@ function AdminPage() {
                   </div>
                 </div>
               ))}
-              {!artistList.length && <p className="admin-empty-state">Nenhum artista cadastrado ainda.</p>}
+              {!filteredAdminArtists.length && <p className="admin-empty-state">{artistList.length ? 'Nenhum artista corresponde aos filtros.' : 'Nenhum artista cadastrado ainda.'}</p>}
             </div>
           </div>
 
           <div className="admin-listing-panel glass-panel">
-            <div className="section-header compact"><h3>Lançamentos cadastrados <span className="admin-count">{releaseList.length}</span></h3></div>
+            <div className="section-header compact"><h3>Lançamentos cadastrados <span className="admin-count">{filteredAdminReleases.length}/{releaseList.length}</span></h3></div>
+            <div className="listing-filters">
+              <input
+                type="search"
+                value={releaseListQuery}
+                onChange={(event) => setReleaseListQuery(event.target.value)}
+                placeholder="Buscar por álbum ou artista"
+                aria-label="Buscar lançamentos cadastrados"
+              />
+              <select aria-label="Filtrar lançamentos cadastrados por tipo" value={releaseListType} onChange={(event) => setReleaseListType(event.target.value)}>
+                <option>Todos</option>
+                <option>Album</option>
+                <option>EP</option>
+                <option>Single</option>
+              </select>
+            </div>
             <div className="admin-list-grid">
-              {releaseList.map((release) => (
+              {filteredAdminReleases.map((release) => (
                 <div key={release.id} className="admin-list-item">
                   <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
                   <div className="admin-list-copy">
@@ -3902,7 +4413,7 @@ function AdminPage() {
                   </div>
                 </div>
               ))}
-              {!releaseList.length && <p className="admin-empty-state">Nenhum lançamento cadastrado ainda.</p>}
+              {!filteredAdminReleases.length && <p className="admin-empty-state">{releaseList.length ? 'Nenhum lançamento corresponde aos filtros.' : 'Nenhum lançamento cadastrado ainda.'}</p>}
             </div>
           </div>
         </section>
@@ -3974,12 +4485,21 @@ function AdminPage() {
           <div className="admin-listing-panel glass-panel">
         <div className="section-header compact">
           <div>
-            <h3>Destaques do carrossel</h3>
+            <h3>Destaques do carrossel <span className="admin-count">{filteredFeaturedList.length}/{featuredList.length}</span></h3>
             <p>Adicione outros álbuns no formulário acima; cada lançamento vira um slide.</p>
           </div>
         </div>
+        <div className="listing-filters">
+          <input
+            type="search"
+            value={featuredListQuery}
+            onChange={(event) => setFeaturedListQuery(event.target.value)}
+            placeholder="Buscar por álbum, artista ou descrição"
+            aria-label="Buscar destaques do carrossel"
+          />
+        </div>
         <div className="admin-list-grid">
-          {featuredList.map((featured) => (
+          {filteredFeaturedList.map((featured) => (
             <div key={featured.id} className="admin-list-item featured-admin-list-item">
               <img
                 src={featured.banner_url || featured.cover_url || getReleaseFallbackImage(featured)}
@@ -4001,8 +4521,50 @@ function AdminPage() {
               </div>
             </div>
           ))}
-          {!featuredList.length && <p className="admin-empty-state">Nenhum destaque publicado ainda. Use o formulário acima para criar o primeiro.</p>}
+          {!filteredFeaturedList.length && <p className="admin-empty-state">{featuredList.length ? 'Nenhum destaque corresponde à busca.' : 'Nenhum destaque publicado ainda. Use o formulário acima para criar o primeiro.'}</p>}
         </div>
+          </div>
+        </section>
+      )}
+
+      {activeAdminSection === 'approvals' && (
+        <section aria-labelledby="admin-tab-approvals" className="admin-section">
+          <div className="admin-section-heading">
+            <div>
+              <span className="admin-section-kicker">Revisão de contas</span>
+              <h3>Perfis aguardando aprovação</h3>
+              <p>Revise os dados de cada perfil antes de liberar interações na plataforma.</p>
+            </div>
+          </div>
+          <div className="admin-listing-panel glass-panel">
+            <div className="admin-list-grid">
+              {isLoadingModeration && <p className="admin-empty-state">Carregando perfis pendentes…</p>}
+              {!isLoadingModeration && adminUsers.map((adminUser) => (
+                <article key={adminUser.id} className="admin-list-item approval-user">
+                  <img
+                    className="approval-user-avatar"
+                    src={adminUser.avatar_url || imagePlaceholder}
+                    onError={(event) => handleImageError(event, imagePlaceholder)}
+                    alt=""
+                  />
+                  <div className="admin-list-copy">
+                    <strong>{adminUser.full_name || adminUser.username}</strong>
+                    <small>@{adminUser.username} · {adminUser.email}</small>
+                    <p>{adminUser.bio || 'Sem biografia cadastrada.'}</p>
+                    <small>Cadastro: {new Date(adminUser.created_at).toLocaleDateString('pt-BR')}</small>
+                  </div>
+                  <div className="admin-list-actions">
+                    <Link to={`/profile/${adminUser.id}`} className="secondary-btn compact-btn">Ver perfil</Link>
+                    <button type="button" className="primary-btn compact-btn" onClick={() => handleUserApprove(adminUser)}>
+                      Aprovar perfil
+                    </button>
+                  </div>
+                </article>
+              ))}
+              {!isLoadingModeration && !adminUsers.length && (
+                <p className="admin-empty-state">Não há perfis aguardando aprovação.</p>
+              )}
+            </div>
           </div>
         </section>
       )}
@@ -4029,6 +4591,13 @@ function AdminPage() {
             <div className="admin-listing-panel glass-panel">
               <div className="section-header compact">
                 <h3>Perfis <span className="admin-count">{filteredAdminUsers.length}</span></h3>
+              </div>
+              <div className="listing-filters">
+                <select aria-label="Filtrar perfis por status" value={moderationUserStatus} onChange={(event) => setModerationUserStatus(event.target.value)}>
+                  <option value="all">Todos os perfis</option>
+                  <option value="active">Perfis ativos</option>
+                  <option value="suspended">Perfis ocultos</option>
+                </select>
               </div>
               <div className="admin-list-grid">
                 {isLoadingModeration && <p className="admin-empty-state">Carregando perfis…</p>}
@@ -4058,6 +4627,13 @@ function AdminPage() {
             <div className="admin-listing-panel glass-panel">
               <div className="section-header compact">
                 <h3>Resenhas <span className="admin-count">{filteredAdminReviews.length}</span></h3>
+              </div>
+              <div className="listing-filters">
+                <select aria-label="Filtrar resenhas por nota" value={moderationReviewRating} onChange={(event) => setModerationReviewRating(event.target.value)}>
+                  <option value="all">Todas as notas</option>
+                  <option value="8">Nota 8 ou mais</option>
+                  <option value="5">Nota 5 ou mais</option>
+                </select>
               </div>
               <div className="admin-list-grid">
                 {isLoadingModeration && <p className="admin-empty-state">Carregando resenhas…</p>}
