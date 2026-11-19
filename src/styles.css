@@ -6257,7 +6257,7 @@ textarea {
   }
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .app-shell {
     padding: 14px 18px calc(112px + env(safe-area-inset-bottom));
   }
@@ -6363,7 +6363,11 @@ textarea {
   .home-page,
   .profile-page,
   .release-view,
-  .artist-page,
+  .content-stack,
+  .artist-hero,
+  .artist-toolbar,
+  .artist-discography,
+  .artist-about,
   .social-page {
     min-width: 0;
     max-width: 100%;
@@ -6374,13 +6378,17 @@ textarea {
   .home-right-rail,
   .profile-page > *,
   .release-view > *,
-  .artist-page > * {
+  .artist-hero > *,
+  .artist-toolbar > *,
+  .artist-discography > *,
+  .artist-about > * {
     min-width: 0;
   }
 
   .release-detail {
     grid-template-columns: minmax(0, 1fr);
   }
+
 }
 
 @media (max-width: 600px) {
@@ -6571,7 +6579,7 @@ textarea {
   }
 
   .side-dock {
-    width: calc(100vw - 14px);
+    width: calc(100vw - 24px);
   }
 
   .side-dock-link {
@@ -6587,4 +6595,19 @@ textarea {
 :root[data-theme="light"] .side-dock-link.is-active {
   color: var(--primary-strong);
   background: rgba(44, 128, 92, 0.1);
+}
+
+.admin-form.is-editing-featured {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary), var(--shadow-soft);
+}
+
+.featured-admin-list-item .admin-list-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.featured-admin-list-item .admin-list-actions button {
+  white-space: nowrap;
 }

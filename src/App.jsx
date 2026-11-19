@@ -2419,6 +2419,7 @@ function AdminPage() {
   const [isReleaseCoverUploading, setIsReleaseCoverUploading] = useState(false);
   const [editingArtistId, setEditingArtistId] = useState(null);
   const [editingReleaseId, setEditingReleaseId] = useState(null);
+  const [editingFeaturedId, setEditingFeaturedId] = useState(null);
   const [adminError, setAdminError] = useState('');
   const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
   const [releaseForm, setReleaseForm] = useState({
@@ -2610,12 +2611,31 @@ function AdminPage() {
         banner_url: bannerUrl,
         description,
       });
-      alert('Destaque salvo no carrossel da página inicial.');
+      alert(editingFeaturedId ? 'Destaque atualizado no carrossel da página inicial.' : 'Destaque salvo no carrossel da página inicial.');
+      setEditingFeaturedId(null);
       setFeaturedForm({ release_id: '', sort_order: 1, banner_url: '', description: '' });
       refreshCatalogLists();
     } catch (error) {
       reportAdminError(error, 'Não foi possível salvar o destaque. Confira o lançamento selecionado.');
     }
+  };
+
+  const handleFeaturedEdit = (featured) => {
+    setAdminError('');
+    setEditingFeaturedId(featured.id);
+    setFeaturedForm({
+      release_id: String(featured.release_id),
+      sort_order: featured.sort_order,
+      banner_url: featured.banner_url || '',
+      description: featured.description || '',
+    });
+    document.getElementById('featured-form')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const cancelFeaturedEdit = () => {
+    setEditingFeaturedId(null);
+    setFeaturedForm({ release_id: '', sort_order: 1, banner_url: '', description: '' });
+    setAdminError('');
   };
 
   const handleFeaturedDelete = async (featuredId) => {
@@ -2624,6 +2644,7 @@ function AdminPage() {
     try {
       await api.delete(`/admin/featured/${featuredId}`);
       setFeaturedList((current) => current.filter((item) => item.id !== featuredId));
+      if (editingFeaturedId === featuredId) cancelFeaturedEdit();
     } catch (error) {
       reportAdminError(error, 'Não foi possível remover o destaque.');
     }
@@ -2887,16 +2908,17 @@ function AdminPage() {
           <button type="submit" className="primary-btn" disabled={isReleaseCoverUploading}>{editingReleaseId ? 'Salvar alterações' : 'Criar lançamento'}</button>
         </form>
 
-        <form className="admin-form glass-panel" onSubmit={submitFeatured}>
+        <form id="featured-form" className={`admin-form glass-panel${editingFeaturedId ? ' is-editing-featured' : ''}`} onSubmit={submitFeatured}>
           <div className="admin-form-header">
             <div>
-              <h3>Criar destaque</h3>
-              <span>Adicione um álbum ao carrossel da página inicial</span>
+              <h3>{editingFeaturedId ? 'Editar destaque' : 'Criar destaque'}</h3>
+              <span>{editingFeaturedId ? 'Atualize o banner, a descrição ou a posição deste slide.' : 'Adicione um álbum ao carrossel da página inicial.'}</span>
             </div>
           </div>
           <select
             required
             aria-label="Lançamento do destaque"
+            disabled={editingFeaturedId !== null}
             value={featuredForm.release_id}
             onChange={(e) => setFeaturedForm({ ...featuredForm, release_id: e.target.value })}
           >
@@ -2932,8 +2954,11 @@ function AdminPage() {
             placeholder="Ordem no carrossel"
           />
           <button type="submit" className="primary-btn" disabled={isFeaturedBannerUploading}>
-            {isFeaturedBannerUploading ? 'Enviando banner…' : 'Salvar destaque'}
+            {isFeaturedBannerUploading ? 'Enviando banner…' : editingFeaturedId ? 'Salvar alterações' : 'Salvar destaque'}
           </button>
+          {editingFeaturedId && (
+            <button type="button" className="secondary-btn" onClick={cancelFeaturedEdit}>Cancelar edição</button>
+          )}
         </form>
       </div>
 
@@ -2958,6 +2983,9 @@ function AdminPage() {
                 <p>{featured.description || 'Sem descrição'}</p>
               </div>
               <div className="admin-list-actions">
+                <button type="button" className="secondary-btn compact-btn" onClick={() => handleFeaturedEdit(featured)}>
+                  Editar banner
+                </button>
                 <button type="button" className="danger-btn compact-btn" onClick={() => handleFeaturedDelete(featured.id)}>
                   Remover banner
                 </button>
