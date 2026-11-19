@@ -1101,14 +1101,25 @@ app.get('/api/profile/:userId', async (req, res) => {
     ORDER BY rv.created_at DESC
   `, [req.params.userId]);
 
-  const playlists = await allDb('SELECT * FROM playlists WHERE user_id = ? ORDER BY created_at DESC', [req.params.userId]);
+  const playlists = await allDb(`
+    SELECT p.*, (
+      SELECT COUNT(*)
+      FROM playlist_tracks pt
+      WHERE pt.playlist_id = p.id
+    ) AS track_count
+    FROM playlists p
+    WHERE p.user_id = ?
+    ORDER BY p.created_at DESC
+  `, [req.params.userId]);
   const favorites = await allDb(`
-    SELECT f.*, t.title AS track_title, r.title AS release_title, a.name AS artist_name
+    SELECT f.*, t.title AS track_title, r.id AS release_id, r.title AS release_title,
+      r.cover_url AS release_cover, a.name AS artist_name
     FROM favorites f
     JOIN tracks t ON t.id = f.track_id
     JOIN releases r ON r.id = t.release_id
     JOIN artists a ON a.id = r.artist_id
     WHERE f.user_id = ?
+    ORDER BY f.created_at DESC
   `, [req.params.userId]);
 
   return res.json({ user: normalizeUser(user), reviews, playlists, favorites });

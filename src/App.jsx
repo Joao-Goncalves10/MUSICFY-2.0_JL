@@ -1040,6 +1040,8 @@ function ProfilePage() {
   const [activeTab, setActiveTab] = useState('overview');
   const [form, setForm] = useState({ username: '', full_name: '', bio: '', avatar_url: '', banner_url: '' });
   const [playlistName, setPlaylistName] = useState('');
+  const [playlistError, setPlaylistError] = useState('');
+  const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
 
   const loadProfile = async () => {
     const target = userId || user?.id;
@@ -1066,10 +1068,23 @@ function ProfilePage() {
   };
 
   const createPlaylist = async () => {
-    if (!playlistName.trim()) return;
-    await api.post('/playlists', { name: playlistName, description: 'Playlist criada no Musicfy.' });
-    setPlaylistName('');
-    await loadProfile();
+    const name = playlistName.trim();
+    if (!name) {
+      setPlaylistError('Dê um nome para sua playlist.');
+      return;
+    }
+
+    setPlaylistError('');
+    setIsCreatingPlaylist(true);
+    try {
+      await api.post('/playlists', { name, description: 'Playlist criada no Musicfy.' });
+      setPlaylistName('');
+      await loadProfile();
+    } catch (error) {
+      setPlaylistError(error.response?.data?.error || 'Não foi possível criar a playlist. Tente novamente.');
+    } finally {
+      setIsCreatingPlaylist(false);
+    }
   };
 
   if (!profile) return <div className="loading-panel">Carregando perfil…</div>;
@@ -1077,23 +1092,24 @@ function ProfilePage() {
   const isOwner = Number(user?.id) === Number(profile.user.id);
 
   return (
-    <div className="content-stack">
+    <div className="content-stack profile-page">
       <div className="profile-hero glass-panel" style={{ backgroundImage: `url(${profile.user.banner_url || 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80'})` }}>
         <div className="profile-copy">
           <img src={profile.user.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={profile.user.username} />
           <div>
             <h1>{profile.user.full_name}</h1>
             <p>@{profile.user.username}</p>
+            {profile.user.bio && <span>{profile.user.bio}</span>}
           </div>
         </div>
       </div>
 
       <div className="profile-toolbar">
-        <div className="profile-tabs">
-          <button type="button" className={activeTab === 'overview' ? 'is-active' : ''} onClick={() => setActiveTab('overview')}>Visão geral</button>
-          <button type="button" className={activeTab === 'reviews' ? 'is-active' : ''} onClick={() => setActiveTab('reviews')}>Avaliações</button>
-          <button type="button" className={activeTab === 'playlists' ? 'is-active' : ''} onClick={() => setActiveTab('playlists')}>Playlists</button>
-          <button type="button" className={activeTab === 'favorites' ? 'is-active' : ''} onClick={() => setActiveTab('favorites')}>Favoritos</button>
+        <div className="profile-tabs" role="tablist" aria-label="Seções do perfil">
+          <button type="button" role="tab" aria-selected={activeTab === 'overview'} className={activeTab === 'overview' ? 'is-active' : ''} onClick={() => setActiveTab('overview')}>Visão geral</button>
+          <button type="button" role="tab" aria-selected={activeTab === 'reviews'} className={activeTab === 'reviews' ? 'is-active' : ''} onClick={() => setActiveTab('reviews')}>Avaliações</button>
+          <button type="button" role="tab" aria-selected={activeTab === 'playlists'} className={activeTab === 'playlists' ? 'is-active' : ''} onClick={() => setActiveTab('playlists')}>Playlists</button>
+          <button type="button" role="tab" aria-selected={activeTab === 'favorites'} className={activeTab === 'favorites' ? 'is-active' : ''} onClick={() => setActiveTab('favorites')}>Curtidas</button>
         </div>
         {isOwner && (
           <button type="button" className="secondary-btn" onClick={() => setIsEditing((value) => !value)}>
@@ -1133,75 +1149,185 @@ function ProfilePage() {
       )}
 
       {activeTab === 'overview' && (
-        <section className="subsection">
-          <div className="profile-summary">
-            <div className="summary-card glass-panel">
-              <span>Biografia</span>
-              <p>{profile.user.bio || 'Ainda não escreveu uma biografia.'}</p>
-            </div>
-            <div className="summary-card glass-panel">
-              <span>Resumo</span>
-              <p>{profile.reviews.length} avaliações • {profile.playlists.length} playlists • {profile.favorites.length} favoritos</p>
+        <section className="profile-overview">
+          <div className="profile-section-heading">
+            <div>
+              <p className="eyebrow">Seu espaço Musicfy</p>
+              <h2>Visão geral</h2>
+              <p>Acompanhe sua atividade e volte ao que você curte.</p>
             </div>
           </div>
+
+          <div className="profile-stat-grid">
+            <button type="button" className="profile-stat-card" onClick={() => setActiveTab('reviews')}>
+              <span className="profile-stat-icon" aria-hidden="true">✦</span>
+              <strong>{profile.reviews.length}</strong>
+              <span>Avaliações</span>
+            </button>
+            <button type="button" className="profile-stat-card" onClick={() => setActiveTab('playlists')}>
+              <span className="profile-stat-icon" aria-hidden="true">♫</span>
+              <strong>{profile.playlists.length}</strong>
+              <span>Playlists</span>
+            </button>
+            <button type="button" className="profile-stat-card" onClick={() => setActiveTab('favorites')}>
+              <span className="profile-stat-icon" aria-hidden="true">♥</span>
+              <strong>{profile.favorites.length}</strong>
+              <span>Músicas curtidas</span>
+            </button>
+          </div>
+
+          <article className="profile-bio-card glass-panel">
+            <div className="profile-bio-mark" aria-hidden="true">“</div>
+            <div>
+              <p className="eyebrow">Um pouco sobre</p>
+              <h3>{profile.user.full_name}</h3>
+              <p>{profile.user.bio || (isOwner ? 'Adicione uma biografia para contar um pouco sobre você e seus gostos musicais.' : 'Este usuário ainda não adicionou uma biografia.')}</p>
+            </div>
+          </article>
         </section>
       )}
 
       {activeTab === 'reviews' && (
-        <section className="subsection">
-          <h3>Avaliações recentes</h3>
-          <div className="feed-list">
-            {profile.reviews.map((review) => (
-              <div key={review.id} className="review-feed-item glass-panel">
-                <div className="review-head">
-                  <strong>{review.release_title}</strong>
-                  <RatingBadge value={review.rating} />
-                </div>
-                <p>{review.review_text}</p>
-              </div>
-            ))}
+        <section className="profile-section">
+          <div className="profile-section-heading">
+            <div>
+              <p className="eyebrow">Opiniões e descobertas</p>
+              <h2>Avaliações</h2>
+              <p>{profile.reviews.length} {profile.reviews.length === 1 ? 'lançamento avaliado' : 'lançamentos avaliados'}</p>
+            </div>
           </div>
+          {profile.reviews.length ? (
+            <div className="profile-review-list">
+              {profile.reviews.map((review) => (
+                <article key={review.id} className="profile-review-card glass-panel">
+                  <Link to={`/releases/${review.release_id}`} className="profile-review-artwork" aria-label={`Abrir ${review.release_title}`}>
+                    <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                  </Link>
+                  <div className="profile-review-copy">
+                    <div className="profile-review-heading">
+                      <div>
+                        <span className="eyebrow">{review.artist_name || 'Lançamento'}</span>
+                        <Link to={`/releases/${review.release_id}`} className="profile-review-title">{review.release_title}</Link>
+                      </div>
+                      <RatingBadge value={review.rating} />
+                    </div>
+                    <p>{review.review_text || 'Sem comentário escrito.'}</p>
+                    <small>{review.created_at}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="profile-empty-state glass-panel">
+              <span aria-hidden="true">✦</span>
+              <h3>Suas avaliações aparecem aqui</h3>
+              <p>Avalie um álbum ou EP para compartilhar sua opinião com a comunidade.</p>
+              <Link to="/explore" className="secondary-btn">Explorar lançamentos</Link>
+            </div>
+          )}
         </section>
       )}
 
       {activeTab === 'playlists' && (
-        <section className="subsection">
-          <div className="playlist-create glass-panel">
-            <h3>Criar playlist</h3>
-            <div className="playlist-form">
-              <input value={playlistName} onChange={(e) => setPlaylistName(e.target.value)} placeholder="Nome da playlist" />
-              <button type="button" className="primary-btn" onClick={createPlaylist}>Criar</button>
+        <section className="profile-section">
+          <div className="profile-section-heading">
+            <div>
+              <p className="eyebrow">Trilhas para cada momento</p>
+              <h2>Playlists</h2>
+              <p>{profile.playlists.length} {profile.playlists.length === 1 ? 'playlist criada' : 'playlists criadas'}</p>
             </div>
           </div>
 
-          <div className="card-grid">
-            {profile.playlists.map((playlist) => (
-              <div key={playlist.id} className="release-card glass-panel">
-                <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={playlist.name} />
-                <div className="release-meta">
-                  <h3>{playlist.name}</h3>
-                  <p>{playlist.description || 'Playlist pessoal'}</p>
+          {isOwner && (
+            <form className="playlist-create-panel glass-panel" onSubmit={(event) => {
+              event.preventDefault();
+              void createPlaylist();
+            }}>
+              <div className="playlist-create-art" aria-hidden="true">♫</div>
+              <div className="playlist-create-copy">
+                <p className="eyebrow">Nova coleção</p>
+                <h3>Crie a trilha do seu próximo momento</h3>
+                <p>Dê um nome à playlist. Depois, você poderá adicionar suas músicas favoritas.</p>
+                <div className="playlist-create-form">
+                  <input
+                    value={playlistName}
+                    maxLength={191}
+                    onChange={(event) => {
+                      setPlaylistName(event.target.value);
+                      setPlaylistError('');
+                    }}
+                    placeholder="Ex.: Noites tranquilas"
+                    aria-label="Nome da playlist"
+                    required
+                    disabled={isCreatingPlaylist}
+                  />
+                  <button type="submit" className="primary-btn" disabled={isCreatingPlaylist}>
+                    {isCreatingPlaylist ? 'Criando...' : 'Criar playlist'}
+                  </button>
                 </div>
+                {playlistError && <p className="playlist-form-error" role="alert">{playlistError}</p>}
               </div>
-            ))}
-          </div>
+            </form>
+          )}
+
+          {profile.playlists.length ? (
+            <div className="profile-playlist-grid">
+              {profile.playlists.map((playlist) => (
+                <article key={playlist.id} className="profile-playlist-card glass-panel">
+                  <div className="profile-playlist-artwork">
+                    <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                    <span aria-hidden="true">♫</span>
+                  </div>
+                  <div className="profile-playlist-copy">
+                    <h3>{playlist.name}</h3>
+                    <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
+                    <small>{Number(playlist.track_count || 0)} {Number(playlist.track_count || 0) === 1 ? 'música' : 'músicas'}</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="profile-empty-state glass-panel">
+              <span aria-hidden="true">♫</span>
+              <h3>Nenhuma playlist por enquanto</h3>
+              <p>{isOwner ? 'Crie uma playlist para organizar as músicas que combinam com você.' : 'Este usuário ainda não criou playlists.'}</p>
+            </div>
+          )}
         </section>
       )}
 
       {activeTab === 'favorites' && (
-        <section className="subsection">
-          <h3>Músicas favoritas</h3>
-          <div className="tracklist">
-            {profile.favorites.length ? profile.favorites.map((favorite) => (
-              <div key={favorite.id} className="track-item glass-panel">
-                <span>♥</span>
-                <div>
-                  <strong>{favorite.track_title}</strong>
-                  <small>{favorite.artist_name} • {favorite.release_title}</small>
-                </div>
-              </div>
-            )) : <p>Nenhuma música favoritada ainda.</p>}
+        <section className="profile-section">
+          <div className="profile-section-heading">
+            <div>
+              <p className="eyebrow">Músicas que ficam com você</p>
+              <h2>Curtidas</h2>
+              <p>{profile.favorites.length} {profile.favorites.length === 1 ? 'música salva' : 'músicas salvas'}</p>
+            </div>
           </div>
+          {profile.favorites.length ? (
+            <div className="profile-favorite-grid">
+              {profile.favorites.map((favorite) => (
+                <Link key={favorite.id} to={`/releases/${favorite.release_id}`} className="profile-favorite-card glass-panel">
+                  <img src={favorite.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                  <div>
+                    <span className="profile-favorite-heart" aria-hidden="true">♥</span>
+                    <h3>{favorite.track_title}</h3>
+                    <p>{favorite.artist_name}</p>
+                    <small>{favorite.release_title}</small>
+                  </div>
+                  <span className="profile-favorite-open" aria-hidden="true">↗</span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="profile-empty-state glass-panel">
+              <span aria-hidden="true">♥</span>
+              <h3>Suas músicas curtidas aparecem aqui</h3>
+              <p>Toque no coração em uma música para guardá-la nesta coleção.</p>
+              <Link to="/explore" className="secondary-btn">Encontrar músicas</Link>
+            </div>
+          )}
         </section>
       )}
     </div>
