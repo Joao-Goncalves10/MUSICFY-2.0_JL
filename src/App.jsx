@@ -1820,7 +1820,6 @@ function ArtistDetailPage() {
         <div className="artist-section-heading">
           <p className="eyebrow">Conheça a discografia</p>
           <h2>Lançamentos populares</h2>
-          <span className="explore-filter-label">{artistData.releases.length} lançamentos</span>
         </div>
         <div className="artist-release-list">
           {artistData.releases.length ? artistData.releases.map((release, index) => (
