@@ -19,23 +19,11 @@ CREATE TABLE IF NOT EXISTS users (
   bio TEXT NULL,
   `role` VARCHAR(32) NOT NULL DEFAULT 'USER',
   is_suspended TINYINT(1) NOT NULL DEFAULT 0,
-  email_verified TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_users_username (username),
   UNIQUE KEY uq_users_email (email)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS email_verification_tokens (
-  user_id BIGINT UNSIGNED NOT NULL,
-  token_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
-  expires_at DATETIME NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (user_id),
-  UNIQUE KEY uq_email_verification_token_hash (token_hash),
-  KEY idx_email_verification_expires_at (expires_at),
-  CONSTRAINT fk_email_verification_tokens_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS user_follows (

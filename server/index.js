@@ -7,31 +7,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mysql = require('mysql2/promise');
 const multer = require('multer');
-const helmet = require('helmet');
-const nodemailer = require('nodemailer');
-const { rateLimit } = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET;
-const allowedOrigins = new Set(
-  (process.env.CORS_ORIGINS || '')
-    .split(',')
-    .map((origin) => origin.trim().replace(/\/$/, ''))
-    .filter(Boolean)
-);
-if (process.env.NODE_ENV !== 'production') {
-  allowedOrigins.add('http://localhost:5173');
-  allowedOrigins.add('http://127.0.0.1:5173');
-}
-if (process.env.TRUST_PROXY) {
-  const trustProxyHops = Number(process.env.TRUST_PROXY);
-  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 1) {
-    throw new Error('TRUST_PROXY must be a positive number of trusted proxy hops.');
-  }
-  app.set('trust proxy', trustProxyHops);
-}
 
 const requiredTidbSettings = ['TIDB_HOST', 'TIDB_USER', 'TIDB_PASSWORD', 'TIDB_DATABASE', 'JWT_SECRET'];
 const missingTidbSettings = requiredTidbSettings.filter((setting) => !process.env[setting]);
@@ -78,11 +58,6 @@ const imageMimeTypes = {
 };
 
 const isValidImageUrl = (value) => value == null || (typeof value === 'string' && value.length <= 512);
-const isValidEmailAddress = (value) => (
-  typeof value === 'string'
-  && value.length <= 191
-  && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)
-);
 
 async function validateReviewGifUrl(value) {
   if (value == null || value === '') return { valid: true, url: null };
@@ -164,78 +139,6 @@ const getDb = async (sql, params = []) => {
 const allDb = async (sql, params = []) => {
   const [rows] = await db.execute(sql, params);
   return rows;
-};
-
-let emailTransporter;
-const getEmailTransporter = () => {
-  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM } = process.env;
-  const publicAppUrl = process.env.PUBLIC_APP_URL;
-  if (!SMTP_HOST || !EMAIL_FROM || !publicAppUrl) return null;
-  if (Boolean(SMTP_USER) !== Boolean(SMTP_PASSWORD)) {
-    throw new Error('Configure both SMTP_USER and SMTP_PASSWORD, or neither.');
-  }
-
-  let parsedAppUrl;
-  try {
-    parsedAppUrl = new URL(publicAppUrl);
-  } catch {
-    throw new Error('PUBLIC_APP_URL must be an absolute HTTP(S) URL.');
-  }
-  if (!['http:', 'https:'].includes(parsedAppUrl.protocol)) {
-    throw new Error('PUBLIC_APP_URL must use HTTP or HTTPS.');
-  }
-  if (process.env.NODE_ENV === 'production' && parsedAppUrl.protocol !== 'https:') {
-    throw new Error('PUBLIC_APP_URL must use HTTPS in production.');
-  }
-  if (parsedAppUrl.username || parsedAppUrl.password) {
-    throw new Error('PUBLIC_APP_URL must not contain credentials.');
-  }
-  if (SMTP_SECURE && !['true', 'false'].includes(SMTP_SECURE)) {
-    throw new Error('SMTP_SECURE must be either true or false.');
-  }
-
-  if (!emailTransporter) {
-    const port = Number(SMTP_PORT || 587);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error('SMTP_PORT must be a valid TCP port.');
-    }
-    const secure = SMTP_SECURE === 'true' || port === 465;
-    emailTransporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port,
-      secure,
-      requireTLS: !secure,
-      auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASSWORD } : undefined,
-    });
-  }
-  return emailTransporter;
-};
-
-const sendVerificationEmail = async (user) => {
-  const transporter = getEmailTransporter();
-  if (!transporter) {
-    const error = new Error('O envio de e-mail ainda não está configurado no servidor.');
-    error.code = 'EMAIL_NOT_CONFIGURED';
-    throw error;
-  }
-
-  const rawToken = crypto.randomBytes(32).toString('base64url');
-  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-  await runDb(`
-    INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
-    VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 MINUTE))
-    ON DUPLICATE KEY UPDATE token_hash = VALUES(token_hash), expires_at = VALUES(expires_at), created_at = CURRENT_TIMESTAMP
-  `, [user.id, tokenHash]);
-
-  const verifyUrl = new URL('/verify-email', process.env.PUBLIC_APP_URL);
-  verifyUrl.searchParams.set('token', rawToken);
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to: user.email,
-    subject: 'Confirme seu e-mail no Musicfy',
-    text: `Confirme seu e-mail acessando este link (válido por 30 minutos): ${verifyUrl.toString()}`,
-    html: `<p>Confirme seu e-mail para desbloquear as publicações e interações no Musicfy.</p><p><a href="${verifyUrl.toString()}">Confirmar meu e-mail</a></p><p>Este link expira em 30 minutos. Se você não criou uma conta no Musicfy, ignore esta mensagem.</p>`,
-  });
 };
 
 const createNotification = async (userId, type, message, linkUrl, actorUserId = null) => {
@@ -332,7 +235,6 @@ const normalizeUser = (user) => {
     bio: user.bio,
     role: user.role || 'USER',
     is_suspended: Boolean(Number(user.is_suspended)),
-    email_verified: Boolean(Number(user.email_verified)),
     created_at: user.created_at,
   };
 };
@@ -373,10 +275,9 @@ const requireAuth = async (req, res, next) => {
     const userId = parsePositiveId(decoded.id);
     if (!userId) return res.status(401).json({ error: 'Invalid or expired token.' });
 
-    const account = await getDb('SELECT id, `role`, is_suspended, email_verified FROM users WHERE id = ?', [userId]);
+    const account = await getDb('SELECT id, `role`, is_suspended FROM users WHERE id = ?', [userId]);
     if (!account) return res.status(401).json({ error: 'Account no longer exists.' });
     const isSuspended = Boolean(Number(account.is_suspended));
-    const emailVerified = Boolean(Number(account.email_verified));
     const notificationAccessAllowed = (
       (req.method === 'GET' && req.path === '/api/notifications')
       || (req.method === 'POST' && req.path === '/api/notifications/read-all')
@@ -386,20 +287,7 @@ const requireAuth = async (req, res, next) => {
       return res.status(403).json({ error: 'Conta suspensa. Acesse apenas suas notificações.' });
     }
 
-    if (!emailVerified && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method) && !notificationAccessAllowed) {
-      return res.status(403).json({
-        error: 'Confirme seu e-mail para publicar e interagir no Musicfy.',
-        code: 'EMAIL_NOT_VERIFIED',
-      });
-    }
-
-    req.user = {
-      ...decoded,
-      id: Number(account.id),
-      role: account.role,
-      is_suspended: isSuspended,
-      email_verified: emailVerified,
-    };
+    req.user = { ...decoded, id: Number(account.id), role: account.role, is_suspended: isSuspended };
     return next();
   } catch (error) {
     if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
@@ -437,6 +325,16 @@ const requireAdmin = (req, res, next) => {
 async function initializeDatabase() {
   await execDb(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
+  await execDb('DROP TABLE IF EXISTS email_verification_tokens');
+  const emailVerifiedColumn = await getDb(`
+    SELECT COLUMN_NAME
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email_verified'
+  `);
+  if (emailVerifiedColumn) {
+    await execDb('ALTER TABLE users DROP COLUMN email_verified');
+  }
+
   const featuredBannerColumn = await getDb(`
     SELECT COLUMN_NAME
     FROM information_schema.COLUMNS
@@ -462,15 +360,6 @@ async function initializeDatabase() {
   `);
   if (!suspendedColumn) {
     await execDb('ALTER TABLE users ADD COLUMN is_suspended TINYINT(1) NOT NULL DEFAULT 0');
-  }
-
-  const emailVerifiedColumn = await getDb(`
-    SELECT COLUMN_NAME
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'email_verified'
-  `);
-  if (!emailVerifiedColumn) {
-    await execDb('ALTER TABLE users ADD COLUMN email_verified TINYINT(1) NOT NULL DEFAULT 0');
   }
 
   const notificationColumns = [
@@ -499,29 +388,23 @@ async function initializeDatabase() {
   if (Number(userCount?.count || 0) === 0) {
     const adminUsername = process.env.MUSICFY_ADMIN_USERNAME || 'admin';
     const adminName = process.env.MUSICFY_ADMIN_NAME || 'Musicfy Admin';
-    const adminEmail = (process.env.MUSICFY_ADMIN_EMAIL || '').trim().toLowerCase()
-      || (process.env.NODE_ENV === 'production' ? '' : 'admin@musicfy.dev');
+    const adminEmail = process.env.MUSICFY_ADMIN_EMAIL || 'admin@musicfy.dev';
     const adminPassword = process.env.MUSICFY_ADMIN_PASSWORD;
-    if (!isValidEmailAddress(adminEmail)) {
-      throw new Error('Set MUSICFY_ADMIN_EMAIL to a real, accessible e-mail address before initializing an empty database.');
-    }
     if (!adminPassword || adminPassword.length < 12) {
       throw new Error('Set MUSICFY_ADMIN_PASSWORD to at least 12 characters before initializing an empty database.');
     }
 
-    const adminHash = bcrypt.hashSync(adminPassword, 12);
+    const adminHash = bcrypt.hashSync(adminPassword, 10);
     await runDb(
       `INSERT INTO users (username, full_name, email, password_hash, avatar_url, banner_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, ?, 'ADMIN')`,
       [adminUsername, adminName, adminEmail, adminHash, 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1493246507139-91e8fad9978e?auto=format&fit=crop&w=1200&q=80', 'Managing the platform and catalog.']
     );
 
-    if (process.env.NODE_ENV !== 'production') {
-      const userHash = bcrypt.hashSync('User123!', 12);
-      await runDb(
-        `INSERT INTO users (username, full_name, email, password_hash, avatar_url, banner_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, ?, 'USER')`,
-        ['dayana', 'Dayana Costa', 'dayana@example.com', userHash, 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80', 'Taste-maker and playlist curator.']
-      );
-    }
+    const userHash = bcrypt.hashSync('User123!', 10);
+    await runDb(
+      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, banner_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, ?, 'USER')`,
+      ['dayana', 'Dayana Costa', 'dayana@example.com', userHash, 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80', 'Taste-maker and playlist curator.']
+    );
   }
 
   if (process.env.MUSICFY_ADMIN_RESET_PASSWORD === 'true') {
@@ -541,7 +424,7 @@ async function initializeDatabase() {
 
     await runDb(
       'UPDATE users SET password_hash = ? WHERE id = ?',
-      [bcrypt.hashSync(adminPassword, 12), admin.id]
+      [bcrypt.hashSync(adminPassword, 10), admin.id]
     );
     console.log(`Admin password reset for "${adminUsername}". Remove MUSICFY_ADMIN_RESET_PASSWORD from the service environment.`);
   }
@@ -599,14 +482,7 @@ async function initializeDatabase() {
     await runDb(`INSERT INTO tracks (release_id, title, duration, explicit, youtube_url, lyrics, translation, track_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [release2.id, 'Night Bloom', '3:15', 0, 'https://www.youtube.com/watch?v=ScMzIvxBSi4', 'The moon kept a secret in my pocket', 'The moon kept a secret in my pocket', 1]);
     await runDb(`INSERT INTO tracks (release_id, title, duration, explicit, youtube_url, lyrics, translation, track_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [release3.id, 'Mirage Run', '3:33', 0, 'https://www.youtube.com/watch?v=ScMzIvxBSi4', 'I chase the signal through the static glow', 'I chase the signal through the static glow', 1]);
 
-    let sampleUser = await getDb("SELECT id FROM users WHERE username = 'dayana'");
-    if (!sampleUser) {
-      await runDb(
-        `INSERT INTO users (username, full_name, email, password_hash, avatar_url, banner_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, ?, 'USER')`,
-        ['dayana', 'Dayana Costa', 'dayana@example.com', bcrypt.hashSync('User123!', 12), 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=800&q=80', 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80', 'Taste-maker and playlist curator.']
-      );
-      sampleUser = await getDb("SELECT id FROM users WHERE username = 'dayana'");
-    }
+    const sampleUser = await getDb("SELECT id FROM users WHERE username = 'dayana'");
     await runDb('INSERT INTO reviews (user_id, release_id, rating, review_text) VALUES (?, ?, ?, ?)', [sampleUser.id, release1.id, 9, 'A gorgeous emotional ride with peaks and textures that stick with you.']);
     await runDb('INSERT INTO reviews (user_id, release_id, rating, review_text) VALUES (?, ?, ?, ?)', [sampleUser.id, release2.id, 8, 'Lush vocals and precise production — definitely a release worth replaying.']);
     await runDb('INSERT INTO review_likes (review_id, user_id) VALUES (?, ?)', [1, 1]);
@@ -625,65 +501,11 @@ async function initializeDatabase() {
   await migrateLegacyTrackContent();
 }
 
-app.use(helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
-    directives: {
-      defaultSrc: ["'self'"],
-      baseUri: ["'self'"],
-      connectSrc: ["'self'"],
-      fontSrc: ["'self'", 'data:'],
-      formAction: ["'self'"],
-      frameAncestors: ["'none'"],
-      frameSrc: ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
-      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      objectSrc: ["'none'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-    },
-  } : false,
-}));
-app.use(cors({
-  origin(origin, callback) {
-    if (!origin || allowedOrigins.has(origin.replace(/\/$/, ''))) return callback(null, true);
-    const error = new Error('Origin not allowed by CORS.');
-    error.status = 403;
-    return callback(error);
-  },
-  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-}));
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: false, limit: '16kb' }));
+app.use(cors());
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true }));
 app.use('/uploads/artist-banners', express.static(artistBannerUploadDir));
 app.use('/uploads/images', express.static(imageUploadDir));
-
-const registrationLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  limit: 5,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: 'Muitas tentativas de cadastro. Tente novamente em uma hora.' },
-});
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 10,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: 'Muitas tentativas de login. Tente novamente em 15 minutos.' },
-});
-const emailActionLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000,
-  limit: 5,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: 'Muitas tentativas. Tente novamente em uma hora.' },
-});
-const uploadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 20,
-  standardHeaders: 'draft-8',
-  legacyHeaders: false,
-  message: { error: 'Muitos uploads. Tente novamente em 15 minutos.' },
-});
 
 app.get('/api/health', (req, res) => res.json({ ok: true, message: 'Musicfy API running.' }));
 
@@ -827,7 +649,7 @@ app.delete('/api/tracks/:id/texts/:contentType/:languageCode', requireAuth, requ
   return res.json({ deleted: true });
 });
 
-app.post('/api/uploads/artist-banner', uploadLimiter, requireAuth, requireAdmin, (req, res, next) => {
+app.post('/api/uploads/artist-banner', requireAuth, requireAdmin, (req, res, next) => {
   artistBannerUpload.single('banner')(req, res, (error) => {
     if (error instanceof multer.MulterError) {
       if (error.code === 'LIMIT_FILE_SIZE') {
@@ -853,7 +675,7 @@ app.post('/api/uploads/artist-banner', uploadLimiter, requireAuth, requireAdmin,
   return res.status(201).json({ url: `/uploads/artist-banners/${filename}` });
 });
 
-app.post('/api/uploads/image', uploadLimiter, requireAuth, (req, res, next) => {
+app.post('/api/uploads/image', requireAuth, (req, res, next) => {
   imageUpload.single('image')(req, res, (error) => {
     if (error instanceof multer.MulterError) {
       if (error.code === 'LIMIT_FILE_SIZE') {
@@ -900,47 +722,17 @@ app.get('/api/images/:id', async (req, res) => {
   return res.send(image.image_data);
 });
 
-app.post('/api/auth/register', registrationLimiter, async (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username: rawUsername, full_name: rawFullName, email: rawEmail, password, confirmPassword } = req.body;
-    if (
-      typeof rawUsername !== 'string'
-      || typeof rawFullName !== 'string'
-      || typeof rawEmail !== 'string'
-      || typeof password !== 'string'
-      || !rawUsername.trim()
-      || !rawFullName.trim()
-      || !rawEmail.trim()
-      || !password
-    ) {
+    const { username, full_name, email, password, confirmPassword } = req.body;
+    if (!username || !full_name || !email || !password) {
       return res.status(400).json({ error: 'All fields are required.' });
-    }
-    const username = rawUsername.trim().toLowerCase();
-    const full_name = rawFullName.trim();
-    const email = rawEmail.trim().toLowerCase();
-    if (!/^[a-z0-9._-]{3,30}$/.test(username)) {
-      return res.status(400).json({ error: 'O nome de usuário deve ter entre 3 e 30 caracteres: letras, números, ponto, hífen ou sublinhado.' });
-    }
-    if (full_name.length > 191 || !isValidEmailAddress(email)) {
-      return res.status(400).json({ error: 'Informe um nome e um e-mail válidos.' });
     }
     if (password !== confirmPassword) {
       return res.status(400).json({ error: 'Passwords do not match.' });
     }
-    const passwordBytes = Buffer.byteLength(password, 'utf8');
-    if (Array.from(password).length < 12 || passwordBytes > 72) {
-      return res.status(400).json({ error: 'A senha deve ter pelo menos 12 caracteres e no máximo 72 bytes.' });
-    }
-
-    let transporter;
-    try {
-      transporter = getEmailTransporter();
-    } catch (error) {
-      console.error('Invalid email delivery configuration:', error);
-      return res.status(503).json({ error: 'O envio de e-mail está configurado incorretamente. Avise a administração do site.' });
-    }
-    if (!transporter) {
-      return res.status(503).json({ error: 'O cadastro está temporariamente indisponível até que o envio de e-mail seja configurado.' });
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
     }
 
     const existing = await getDb('SELECT id FROM users WHERE username = ? OR email = ?', [username, email]);
@@ -948,45 +740,26 @@ app.post('/api/auth/register', registrationLimiter, async (req, res) => {
       return res.status(409).json({ error: 'Username or email already in use.' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 12);
+    const passwordHash = bcrypt.hashSync(password, 10);
     const result = await runDb(
       `INSERT INTO users (username, full_name, email, password_hash, avatar_url, bio, \`role\`) VALUES (?, ?, ?, ?, ?, ?, 'USER')`,
       [username, full_name, email, passwordHash, 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80', 'New to Musicfy.']
     );
 
-    try {
-      await sendVerificationEmail({ id: result.id, email });
-    } catch (error) {
-      console.error('Verification email delivery failed:', error);
-      return res.status(503).json({
-        error: 'A conta foi criada, mas não foi possível enviar o e-mail. Entre e solicite um novo link de confirmação.',
-        code: 'EMAIL_DELIVERY_FAILED',
-      });
-    }
-    return res.status(201).json({
-      message: 'Conta criada. Verifique seu e-mail para confirmar a conta e desbloquear as publicações.',
-      email,
-    });
+    const user = await getDb('SELECT * FROM users WHERE id = ?', [result.id]);
+    const token = sendToken(user);
+    return res.status(201).json({ token, user: normalizeUser(user) });
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Registration failed.' });
   }
 });
 
-app.post('/api/auth/login', loginLimiter, async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
-    if (
-      typeof username !== 'string'
-      || typeof password !== 'string'
-      || !username
-      || !password
-      || Buffer.byteLength(password, 'utf8') > 72
-    ) {
-      return res.status(400).json({ error: 'Informe usuário e senha.' });
-    }
     const user = await getDb('SELECT * FROM users WHERE username = ?', [username]);
-    if (!user || !await bcrypt.compare(password, user.password_hash)) {
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
@@ -995,65 +768,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ error: 'Login failed.' });
-  }
-});
-
-app.post('/api/auth/resend-verification', emailActionLimiter, async (req, res) => {
-  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-  if (!email || email.length > 191) {
-    return res.status(400).json({ error: 'Informe um endereço de e-mail válido.' });
-  }
-
-  try {
-    const transporter = getEmailTransporter();
-    if (!transporter) {
-      return res.status(503).json({ error: 'O envio de e-mail ainda não está configurado no servidor.' });
-    }
-    const user = await getDb('SELECT id, email, email_verified FROM users WHERE email = ?', [email]);
-    if (user && !Number(user.email_verified)) {
-      await sendVerificationEmail(user);
-    }
-    return res.json({ message: 'Se houver uma conta pendente para esse e-mail, enviaremos um novo link de confirmação.' });
-  } catch (error) {
-    console.error('Verification email resend failed:', error);
-    return res.status(503).json({ error: 'Não foi possível enviar o e-mail agora. Tente novamente mais tarde.' });
-  }
-});
-
-app.post('/api/auth/verify-email', emailActionLimiter, async (req, res, next) => {
-  const token = typeof req.body.token === 'string' ? req.body.token : '';
-  if (!/^[A-Za-z0-9_-]{40,60}$/.test(token)) {
-    return res.status(400).json({ error: 'Link de confirmação inválido ou expirado.' });
-  }
-
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  let connection;
-  try {
-    connection = await db.getConnection();
-    await connection.beginTransaction();
-    const [tokens] = await connection.execute(`
-      SELECT user_id
-      FROM email_verification_tokens
-      WHERE token_hash = ? AND expires_at > UTC_TIMESTAMP()
-      FOR UPDATE
-    `, [tokenHash]);
-    if (!tokens.length) {
-      await connection.rollback();
-      return res.status(400).json({ error: 'Link de confirmação inválido ou expirado. Solicite um novo link.' });
-    }
-
-    await connection.execute(
-      'UPDATE users SET email_verified = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-      [tokens[0].user_id]
-    );
-    await connection.execute('DELETE FROM email_verification_tokens WHERE user_id = ?', [tokens[0].user_id]);
-    await connection.commit();
-    return res.json({ message: 'E-mail confirmado. Sua conta já pode publicar e interagir no Musicfy.' });
-  } catch (error) {
-    if (connection) await connection.rollback();
-    return next(error);
-  } finally {
-    if (connection) connection.release();
   }
 });
 
