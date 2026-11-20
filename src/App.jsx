@@ -3289,10 +3289,26 @@ function AuthPage() {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ username: '', full_name: '', email: '', password: '', confirmPassword: '' });
   const [error, setError] = useState('');
+  const [registrationApprovalRequired, setRegistrationApprovalRequired] = useState(null);
+  const [registrationSettingsError, setRegistrationSettingsError] = useState('');
 
   useEffect(() => {
     if (user) navigate('/');
   }, [user, navigate]);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/auth/registration-settings')
+      .then(({ data }) => {
+        if (active) setRegistrationApprovalRequired(Boolean(data.approval_required));
+      })
+      .catch((settingsError) => {
+        console.error('Unable to load registration settings:', settingsError);
+        if (active) setRegistrationSettingsError('Não foi possível carregar as configurações de aprovação.');
+      });
+
+    return () => { active = false; };
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -3372,6 +3388,16 @@ function AuthPage() {
           )}
 
           {error && <p className="error-text" role="alert">{error}</p>}
+          {mode === 'register' && registrationApprovalRequired !== null && (
+            <p className="auth-registration-note" role="status">
+              {registrationApprovalRequired
+                ? 'Após o cadastro, seu perfil aguardará aprovação do ADM antes de liberar interações.'
+                : 'A aprovação manual está desativada. Você poderá interagir assim que criar sua conta.'}
+            </p>
+          )}
+          {mode === 'register' && registrationSettingsError && (
+            <p className="auth-registration-note" role="status">{registrationSettingsError}</p>
+          )}
           <button className="primary-btn auth-submit" type="submit">
             {mode === 'login' ? 'Entrar no Musicfy' : 'Criar minha conta'}
             <span aria-hidden="true">→</span>
@@ -3477,6 +3503,9 @@ function AdminPage() {
   const [releaseListType, setReleaseListType] = useState('Todos');
   const [featuredListQuery, setFeaturedListQuery] = useState('');
   const [isLoadingModeration, setIsLoadingModeration] = useState(false);
+  const [profileApprovalEnabled, setProfileApprovalEnabled] = useState(null);
+  const [isLoadingProfileApproval, setIsLoadingProfileApproval] = useState(true);
+  const [isSavingProfileApproval, setIsSavingProfileApproval] = useState(false);
   const [artistImageUploads, setArtistImageUploads] = useState(0);
   const [isReleaseCoverUploading, setIsReleaseCoverUploading] = useState(false);
   const [editingArtistId, setEditingArtistId] = useState(null);
@@ -3536,6 +3565,10 @@ function AdminPage() {
     api.get('/dashboard')
       .then((res) => setStats(res.data))
       .catch((error) => reportAdminError(error, 'Não foi possível carregar o painel administrativo.'));
+    api.get('/admin/settings/profile-approval')
+      .then(({ data }) => setProfileApprovalEnabled(Boolean(data.enabled)))
+      .catch((error) => reportAdminError(error, 'Não foi possível carregar a configuração de aprovação de perfis.'))
+      .finally(() => setIsLoadingProfileApproval(false));
     refreshCatalogLists();
   }, [user]);
 
@@ -4049,6 +4082,33 @@ function AdminPage() {
       setAdminNotice(`O perfil de ${targetUser.full_name || targetUser.username} foi aprovado e recebeu uma notificação.`);
     } catch (error) {
       reportAdminError(error, 'Não foi possível aprovar este perfil.');
+    }
+  };
+
+  const updateProfileApprovalSetting = async (enabled) => {
+    if (!enabled && !window.confirm(
+      'Desativar a aprovação manual libera imediatamente todos os perfis que estão aguardando aprovação. Deseja continuar?'
+    )) {
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setIsSavingProfileApproval(true);
+    try {
+      const { data } = await api.put('/admin/settings/profile-approval', { enabled });
+      setProfileApprovalEnabled(data.enabled);
+      if (!data.enabled) setAdminUsers([]);
+      const approvedCount = Number(data.approved_count || 0);
+      setAdminNotice(data.enabled
+        ? 'Aprovação manual ativada. Novos perfis precisarão ser aprovados pelo ADM.'
+        : approvedCount
+          ? `Aprovação manual desativada. ${approvedCount} ${approvedCount === 1 ? 'perfil pendente foi liberado' : 'perfis pendentes foram liberados'}; as pessoas devem atualizar a página.`
+          : 'Aprovação manual desativada. Novos perfis serão liberados automaticamente.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível atualizar a configuração de aprovação de perfis.');
+    } finally {
+      setIsSavingProfileApproval(false);
     }
   };
 
@@ -4630,9 +4690,41 @@ function AdminPage() {
           <div className="admin-section-heading">
             <div>
               <span className="admin-section-kicker">Revisão de contas</span>
-              <h3>Perfis aguardando aprovação</h3>
-              <p>Revise os dados de cada perfil antes de liberar interações na plataforma.</p>
+              <h3>Aprovação de novos perfis</h3>
+              <p>Escolha se novos cadastros precisam de liberação manual para interagir na plataforma.</p>
             </div>
+          </div>
+          <div className="approval-setting-card glass-panel">
+            <div className="approval-setting-copy">
+              <strong>Exigir aprovação do ADM</strong>
+              <p>
+                {profileApprovalEnabled === null
+                  ? 'Carregando a configuração de aprovação.'
+                  : profileApprovalEnabled
+                    ? 'Novas contas poderão navegar, mas precisarão ser aprovadas para interagir.'
+                    : 'Novas contas serão aprovadas automaticamente após o cadastro.'}
+              </p>
+            </div>
+            <label className="approval-setting-toggle">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={profileApprovalEnabled === true}
+                disabled={isLoadingProfileApproval || isSavingProfileApproval || profileApprovalEnabled === null}
+                onChange={(event) => updateProfileApprovalSetting(event.target.checked)}
+              />
+              <span>
+                {isLoadingProfileApproval
+                  ? 'Carregando…'
+                  : isSavingProfileApproval
+                    ? 'Salvando…'
+                    : profileApprovalEnabled === null
+                      ? 'Indisponível'
+                      : profileApprovalEnabled
+                        ? 'Ativada'
+                        : 'Desativada'}
+              </span>
+            </label>
           </div>
           <div className="admin-listing-panel glass-panel">
             <div className="admin-list-grid">
