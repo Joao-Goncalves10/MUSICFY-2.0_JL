@@ -3484,6 +3484,12 @@ function AdminPage() {
   const [editingFeaturedId, setEditingFeaturedId] = useState(null);
   const [adminError, setAdminError] = useState('');
   const [adminNotice, setAdminNotice] = useState('');
+  const [musicBrainzArtistResults, setMusicBrainzArtistResults] = useState([]);
+  const [musicBrainzReleaseResults, setMusicBrainzReleaseResults] = useState([]);
+  const [musicBrainzReleaseQuery, setMusicBrainzReleaseQuery] = useState('');
+  const [isSearchingMusicBrainzArtists, setIsSearchingMusicBrainzArtists] = useState(false);
+  const [isSearchingMusicBrainzReleases, setIsSearchingMusicBrainzReleases] = useState(false);
+  const [loadingMusicBrainzReleaseId, setLoadingMusicBrainzReleaseId] = useState('');
   const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
   const [releaseForm, setReleaseForm] = useState({
     title: '',
@@ -3564,6 +3570,106 @@ function AdminPage() {
   const resetArtistForm = () => {
     setEditingArtistId(null);
     setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+    setMusicBrainzArtistResults([]);
+  };
+
+  const searchMusicBrainzArtists = async () => {
+    const query = artistForm.name.trim();
+    if (!query) {
+      setAdminError('Informe o nome do artista para buscar no MusicBrainz.');
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setMusicBrainzArtistResults([]);
+    setIsSearchingMusicBrainzArtists(true);
+    try {
+      const response = await api.get('/admin/musicbrainz/artists', { params: { q: query } });
+      setMusicBrainzArtistResults(response.data || []);
+      if (!response.data?.length) setAdminNotice('Nenhum artista encontrado no MusicBrainz.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível consultar o MusicBrainz agora.');
+    } finally {
+      setIsSearchingMusicBrainzArtists(false);
+    }
+  };
+
+  const searchMusicBrainzReleases = async () => {
+    const query = musicBrainzReleaseQuery.trim();
+    if (!releaseForm.artist_name) {
+      setAdminError('Selecione um artista cadastrado antes de buscar lançamentos.');
+      return;
+    }
+    if (!query) {
+      setAdminError('Informe o título do lançamento para buscar no MusicBrainz.');
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setMusicBrainzReleaseResults([]);
+    setIsSearchingMusicBrainzReleases(true);
+    try {
+      const response = await api.get('/admin/musicbrainz/releases', {
+        params: { q: query, artist: releaseForm.artist_name },
+      });
+      setMusicBrainzReleaseResults(response.data || []);
+      if (!response.data?.length) setAdminNotice('Nenhum lançamento encontrado no MusicBrainz para esse artista e título.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível consultar o MusicBrainz agora.');
+    } finally {
+      setIsSearchingMusicBrainzReleases(false);
+    }
+  };
+
+  const importMusicBrainzRelease = async (release) => {
+    const hasTrackDetails = releaseForm.tracks.some((track) => (
+      track.title || track.youtube_url || track.lyrics || track.translation
+    ));
+    if (hasTrackDetails && !window.confirm('Importar esta lista substituirá as faixas preenchidas no formulário. Deseja continuar?')) {
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setLoadingMusicBrainzReleaseId(release.id);
+    try {
+      const response = await api.get(`/admin/musicbrainz/releases/${release.id}`);
+      const importedTracks = (response.data.tracks || []).map((track) => ({
+        title: track.title || '',
+        duration: track.duration || '',
+        explicit: false,
+        youtube_url: '',
+        lyrics: '',
+        translation: '',
+      }));
+      const primaryType = release.type === 'EP' || release.type === 'Single' ? release.type : 'Album';
+      setReleaseForm((current) => ({
+        ...current,
+        title: release.title,
+        release_type: primaryType,
+        release_date: response.data.release_date || '',
+        cover_url: response.data.cover_url || current.cover_url,
+        genre: [...new Map(
+          [...splitGenreNames(current.genre), ...(release.genres || [])]
+            .map((genre) => [normalizeGenre(genre), genre])
+        ).values()].join(', '),
+        tracks: importedTracks.length ? importedTracks : current.tracks,
+      }));
+      setGenreOptions((current) => mergeGenreOptions([...current, ...(release.genres || [])]));
+      setMusicBrainzReleaseQuery(release.title);
+      const dateNotice = !response.data.release_date
+        ? ' O MusicBrainz não forneceu uma data completa; informe-a antes de salvar.'
+        : '';
+      setAdminNotice(importedTracks.length
+        ? `Dados e faixas importados. Revise tudo antes de salvar; biografia, imagem do artista, letras e links não são fornecidos pelo MusicBrainz.${dateNotice}`
+        : `Dados importados, mas o MusicBrainz não forneceu uma lista de faixas para este lançamento.${dateNotice}`);
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível carregar as faixas no MusicBrainz agora.');
+    } finally {
+      setLoadingMusicBrainzReleaseId('');
+    }
   };
 
   const submitArtist = async (e) => {
@@ -3666,6 +3772,8 @@ function AdminPage() {
   const resetReleaseForm = () => {
     setEditingReleaseId(null);
     setNewGenreName('');
+    setMusicBrainzReleaseQuery('');
+    setMusicBrainzReleaseResults([]);
     setReleaseForm({
       title: '',
       artist_id: '',
@@ -3687,7 +3795,7 @@ function AdminPage() {
       .filter((track) => track.title || track.youtube_url || track.lyrics || track.translation)
       .map((track, index) => ({
         title: track.title || `Faixa ${index + 1}`,
-        duration: track.duration || '3:00',
+        duration: track.duration || '',
         explicit: Boolean(track.explicit),
         youtube_url: track.youtube_url || '',
         lyrics: track.lyrics || '',
@@ -3832,7 +3940,7 @@ function AdminPage() {
     const tracks = detail.data.tracks?.map((track) => ({
       id: track.id,
       title: track.title || '',
-      duration: track.duration || '3:00',
+      duration: track.duration || '',
       explicit: Boolean(track.explicit),
       youtube_url: track.youtube_url || '',
       lyrics: track.lyrics || '',
@@ -3850,6 +3958,8 @@ function AdminPage() {
       description: detail.data.release.description || '',
       tracks,
     });
+    setMusicBrainzReleaseQuery(detail.data.release.title || '');
+    setMusicBrainzReleaseResults([]);
     setGenreOptions((current) => mergeGenreOptions([...current, ...splitGenreNames(detail.data.release.genre)]));
     setEditingReleaseId(release.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4052,7 +4162,57 @@ function AdminPage() {
               </div>
             )}
           </div>
-          <input placeholder="Nome do artista" value={artistForm.name} onChange={(e) => setArtistForm({ ...artistForm, name: e.target.value })} />
+          <input
+            placeholder="Nome do artista"
+            value={artistForm.name}
+            onChange={(e) => {
+              setArtistForm({ ...artistForm, name: e.target.value });
+              setMusicBrainzArtistResults([]);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void searchMusicBrainzArtists();
+              }
+            }}
+          />
+          <div className="musicbrainz-search">
+            <p>Busque o catálogo do MusicBrainz para preencher nome e gêneros. Biografia e imagens são mantidas para edição manual.</p>
+            <button type="button" className="secondary-btn compact-btn" disabled={isSearchingMusicBrainzArtists} onClick={searchMusicBrainzArtists}>
+              {isSearchingMusicBrainzArtists ? 'Buscando artistas…' : 'Buscar artista no MusicBrainz'}
+            </button>
+            {!!musicBrainzArtistResults.length && (
+              <div className="musicbrainz-results" aria-label="Resultados de artistas do MusicBrainz">
+                {musicBrainzArtistResults.map((artist) => (
+                  <div className="musicbrainz-result" key={artist.id}>
+                    <div>
+                      <strong>{artist.name}</strong>
+                      <small>{[artist.type, artist.country, artist.disambiguation].filter(Boolean).join(' · ') || 'Sem detalhes adicionais'}</small>
+                      {!!artist.genres?.length && <small>Gêneros: {artist.genres.join(', ')}</small>}
+                    </div>
+                    <div className="musicbrainz-result-actions">
+                      <a href={`https://musicbrainz.org/artist/${artist.id}`} target="_blank" rel="noreferrer">MusicBrainz</a>
+                      <button
+                        type="button"
+                        className="ghost-btn compact-btn"
+                        onClick={() => {
+                          setArtistForm((current) => ({
+                            ...current,
+                            name: artist.name,
+                            genres: artist.genres?.length ? artist.genres.join(', ') : current.genres,
+                          }));
+                          setMusicBrainzArtistResults([]);
+                          setAdminNotice('Dados do artista importados. Confira se é o artista correto e complete a biografia e as imagens do site.');
+                        }}
+                      >
+                        Usar dados
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <textarea placeholder="Biografia" value={artistForm.bio} onChange={(e) => setArtistForm({ ...artistForm, bio: e.target.value })} />
           <div className="upload-grid">
             <ImageUploadField
@@ -4089,7 +4249,21 @@ function AdminPage() {
               </button>
             )}
           </div>
-          <input placeholder="Título do lançamento" value={releaseForm.title} onChange={(e) => setReleaseForm({ ...releaseForm, title: e.target.value })} />
+          <input
+            placeholder="Título do lançamento"
+            value={releaseForm.title}
+            onChange={(e) => {
+              setReleaseForm({ ...releaseForm, title: e.target.value });
+              setMusicBrainzReleaseQuery(e.target.value);
+              setMusicBrainzReleaseResults([]);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                void searchMusicBrainzReleases();
+              }
+            }}
+          />
           <select
             aria-label="Artista do lançamento"
             required
@@ -4101,6 +4275,7 @@ function AdminPage() {
                 artist_id: e.target.value,
                 artist_name: selectedArtist?.name || '',
               });
+              setMusicBrainzReleaseResults([]);
             }}
           >
             <option value="">{artistList.length ? 'Selecione um artista cadastrado' : 'Cadastre um artista primeiro'}</option>
@@ -4109,6 +4284,56 @@ function AdminPage() {
             ))}
           </select>
           {!artistList.length && <p className="image-drop-hint">Crie um artista no formulário acima para vinculá-lo a este lançamento.</p>}
+          <div className="musicbrainz-search">
+            <input
+              aria-label="Título para buscar no MusicBrainz"
+              placeholder="Buscar lançamento por título no MusicBrainz"
+              value={musicBrainzReleaseQuery}
+              onChange={(event) => {
+                setMusicBrainzReleaseQuery(event.target.value);
+                setMusicBrainzReleaseResults([]);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void searchMusicBrainzReleases();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="secondary-btn compact-btn"
+              disabled={isSearchingMusicBrainzReleases || !releaseForm.artist_id}
+              onClick={searchMusicBrainzReleases}
+            >
+              {isSearchingMusicBrainzReleases ? 'Buscando lançamentos…' : 'Buscar lançamento no MusicBrainz'}
+            </button>
+            {!!musicBrainzReleaseResults.length && (
+              <div className="musicbrainz-results" aria-label="Resultados de lançamentos do MusicBrainz">
+                {musicBrainzReleaseResults.map((release) => (
+                  <div className="musicbrainz-result" key={release.id}>
+                    <div>
+                      <strong>{release.title}</strong>
+                      <small>{[release.artist, release.type, release.date].filter(Boolean).join(' · ') || 'Sem detalhes adicionais'}</small>
+                      {!!release.genres?.length && <small>Gêneros: {release.genres.join(', ')}</small>}
+                    </div>
+                    <div className="musicbrainz-result-actions">
+                      <a href={`https://musicbrainz.org/release-group/${release.id}`} target="_blank" rel="noreferrer">MusicBrainz</a>
+                      <button
+                        type="button"
+                        className="ghost-btn compact-btn"
+                        disabled={Boolean(loadingMusicBrainzReleaseId)}
+                        onClick={() => importMusicBrainzRelease(release)}
+                      >
+                        {loadingMusicBrainzReleaseId === release.id ? 'Importando…' : 'Usar dados e faixas'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <small className="musicbrainz-attribution">Dados catalográficos fornecidos pelo <a href="https://musicbrainz.org/" target="_blank" rel="noreferrer">MusicBrainz</a>; capas podem vir do <a href="https://coverartarchive.org/" target="_blank" rel="noreferrer">Cover Art Archive</a>. Revise antes de salvar.</small>
+          </div>
           <ImageUploadField
             label="Capa do lançamento"
             value={releaseForm.cover_url}
