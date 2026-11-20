@@ -459,6 +459,10 @@ async function initializeDatabase() {
     await execDb('ALTER TABLE users ADD COLUMN is_approved TINYINT(1) NOT NULL DEFAULT 1');
   }
 
+  await runDb(
+    `INSERT IGNORE INTO app_settings (setting_key, setting_value) VALUES ('require_profile_approval', '1')`
+  );
+
   const notificationColumns = [
     ['type', "VARCHAR(32) NOT NULL DEFAULT 'GENERAL'"],
     ['actor_user_id', 'BIGINT UNSIGNED NULL'],
@@ -819,7 +823,20 @@ app.get('/api/images/:id', async (req, res) => {
   return res.send(image.image_data);
 });
 
+app.get('/api/auth/registration-settings', async (req, res) => {
+  const setting = await getDb(
+    'SELECT setting_value FROM app_settings WHERE setting_key = ?',
+    ['require_profile_approval']
+  );
+  if (!setting) {
+    return res.status(503).json({ error: 'Registration settings are unavailable.' });
+  }
+  return res.json({ approval_required: setting.setting_value === '1' });
+});
+
 app.post('/api/auth/register', async (req, res) => {
+  let connection;
+  let transactionStarted = false;
   try {
     const {
       username: submittedUsername,
@@ -841,26 +858,62 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'A senha deve ter pelo menos 6 caracteres.' });
     }
 
-    const existing = await getDb('SELECT id FROM users WHERE username = ? OR email = ?', [username, email]);
-    if (existing) {
+    const passwordHash = bcrypt.hashSync(password, 10);
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    transactionStarted = true;
+    const [settingRows] = await connection.execute(
+      'SELECT setting_value FROM app_settings WHERE setting_key = ? FOR UPDATE',
+      ['require_profile_approval']
+    );
+    if (!settingRows[0]) {
+      throw new Error('Registration approval setting is missing.');
+    }
+
+    const approvalRequired = settingRows[0].setting_value === '1';
+    const [existingUsers] = await connection.execute(
+      'SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1',
+      [username, email]
+    );
+    if (existingUsers.length) {
+      await connection.rollback();
+      transactionStarted = false;
       return res.status(409).json({ error: 'Este nome de usuário ou e-mail já está cadastrado.' });
     }
 
-    const passwordHash = bcrypt.hashSync(password, 10);
-    const result = await runDb(
-      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, bio, \`role\`, is_approved) VALUES (?, ?, ?, ?, ?, ?, 'USER', 0)`,
-      [username, full_name, email, passwordHash, 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80', 'New to Musicfy.']
+    const [result] = await connection.execute(
+      `INSERT INTO users (username, full_name, email, password_hash, avatar_url, bio, \`role\`, is_approved) VALUES (?, ?, ?, ?, ?, ?, 'USER', ?)`,
+      [
+        username,
+        full_name,
+        email,
+        passwordHash,
+        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=800&q=80',
+        'New to Musicfy.',
+        approvalRequired ? 0 : 1,
+      ]
     );
-
-    const user = await getDb('SELECT * FROM users WHERE id = ?', [result.id]);
+    const [userRows] = await connection.execute('SELECT * FROM users WHERE id = ?', [result.insertId]);
+    await connection.commit();
+    transactionStarted = false;
+    const user = userRows[0];
     const token = sendToken(user);
     return res.status(201).json({ token, user: normalizeUser(user) });
   } catch (error) {
+    if (transactionStarted) {
+      try {
+        await connection.rollback();
+      } catch (rollbackError) {
+        console.error('Failed to roll back account registration:', rollbackError);
+      }
+    }
     if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'Este nome de usuário ou e-mail já está cadastrado.' });
     }
     console.error(error);
     return res.status(500).json({ error: 'Registration failed.' });
+  } finally {
+    connection?.release();
   }
 });
 
@@ -2239,6 +2292,70 @@ app.delete('/api/admin/featured/:featuredId', requireAuth, requireAdmin, async (
 
   await runDb('DELETE FROM featured_releases WHERE id = ?', [featuredId]);
   return res.json({ message: 'Destaque removido do carrossel.' });
+});
+
+app.get('/api/admin/settings/profile-approval', requireAuth, requireAdmin, async (req, res) => {
+  const setting = await getDb(
+    'SELECT setting_value FROM app_settings WHERE setting_key = ?',
+    ['require_profile_approval']
+  );
+  if (!setting) {
+    return res.status(503).json({ error: 'Registration settings are unavailable.' });
+  }
+  return res.json({ enabled: setting.setting_value === '1' });
+});
+
+app.put('/api/admin/settings/profile-approval', requireAuth, requireAdmin, async (req, res) => {
+  if (typeof req.body?.enabled !== 'boolean') {
+    return res.status(400).json({ error: 'Informe se a aprovação de perfis deve ficar ativada.' });
+  }
+
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [settingRows] = await connection.execute(
+      'SELECT setting_value FROM app_settings WHERE setting_key = ? FOR UPDATE',
+      ['require_profile_approval']
+    );
+    if (!settingRows[0]) {
+      await connection.rollback();
+      return res.status(503).json({ error: 'Registration settings are unavailable.' });
+    }
+
+    await connection.execute(
+      `UPDATE app_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP WHERE setting_key = ?`,
+      [req.body.enabled ? '1' : '0', 'require_profile_approval']
+    );
+
+    let approvedCount = 0;
+    if (!req.body.enabled) {
+      await connection.execute(`
+        INSERT INTO notifications (user_id, type, actor_user_id, message, link_url)
+        SELECT id, 'ACCOUNT_APPROVED', ?, ?, '/'
+        FROM users
+        WHERE \`role\` = 'USER' AND is_approved = 0
+      `, [
+        req.user.id,
+        'A aprovação manual de perfis foi desativada. Sua conta foi liberada para participar do Musicfy.',
+      ]);
+      const [result] = await connection.execute(
+        `UPDATE users SET is_approved = 1, updated_at = CURRENT_TIMESTAMP WHERE \`role\` = 'USER' AND is_approved = 0`
+      );
+      approvedCount = Number(result.affectedRows || 0);
+    }
+
+    await connection.commit();
+    return res.json({ enabled: req.body.enabled, approved_count: approvedCount });
+  } catch (error) {
+    try {
+      await connection.rollback();
+    } catch (rollbackError) {
+      console.error('Failed to roll back profile approval settings:', rollbackError);
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
 });
 
 app.get('/api/admin/users', requireAuth, requireAdmin, async (req, res) => {
