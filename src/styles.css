@@ -7240,6 +7240,70 @@ textarea {
   color: var(--text);
 }
 
+.musicbrainz-search {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: var(--glass-soft);
+}
+
+.musicbrainz-search p,
+.musicbrainz-search small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.musicbrainz-results {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.musicbrainz-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--glass-strong);
+}
+
+.musicbrainz-result > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.musicbrainz-result-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.musicbrainz-result-actions a,
+.musicbrainz-attribution a {
+  color: var(--primary-strong);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.musicbrainz-result-actions button {
+  white-space: nowrap;
+}
+
+.musicbrainz-attribution {
+  line-height: 1.5;
+}
+
 .account-approval-notice {
   display: grid;
   gap: 0.3rem;
