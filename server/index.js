@@ -357,6 +357,50 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
+let lastMusicBrainzRequestAt = 0;
+let musicBrainzQueue = Promise.resolve();
+
+const requestMusicBrainz = (url) => {
+  const request = musicBrainzQueue.then(async () => {
+    const wait = Math.max(0, 1000 - (Date.now() - lastMusicBrainzRequestAt));
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
+
+    lastMusicBrainzRequestAt = Date.now();
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'Musicfy/2.0.0 (https://github.com/joaolcs1212/MUSICFY-2.0-jl)',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`MusicBrainz responded with HTTP ${response.status}.`);
+    return response.json();
+  });
+
+  musicBrainzQueue = request.then(() => undefined, () => undefined);
+  return request;
+};
+
+const musicBrainzQuerySpecialCharacters = '+-!(){}[]^"~*?:\\/&|';
+const escapeMusicBrainzQuery = (value) => Array.from(value, (character) => (
+  musicBrainzQuerySpecialCharacters.includes(character) ? `\\${character}` : character
+)).join('');
+
+const musicBrainzGenreNames = (entity) => (
+  [...(entity.genres || []), ...(entity.tags || [])]
+    .map((tag) => typeof tag === 'string' ? tag : tag?.name)
+    .filter(Boolean)
+    .map((name) => name.trim())
+    .filter((name, index, names) => names.findIndex((item) => item.toLocaleLowerCase() === name.toLocaleLowerCase()) === index)
+    .slice(0, 8)
+);
+
+const formatMusicBrainzDuration = (milliseconds) => {
+  const seconds = Math.round(Number(milliseconds) / 1000);
+  if (!Number.isFinite(seconds) || seconds < 0) return '';
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+};
+
 async function initializeDatabase() {
   await execDb(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
@@ -921,6 +965,111 @@ app.delete('/api/artists/:id/follow', requireAuth, async (req, res) => {
   return res.json({ following: false, follower_count: Number(count.follower_count || 0) });
 });
 
+app.get('/api/admin/musicbrainz/artists', requireAuth, requireAdmin, async (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  if (!query || query.length > 100) {
+    return res.status(400).json({ error: 'Informe um nome de artista com até 100 caracteres.' });
+  }
+
+  const params = new URLSearchParams({
+    query: `artist:"${escapeMusicBrainzQuery(query)}"`,
+    fmt: 'json',
+    limit: '10',
+  });
+
+  try {
+    const data = await requestMusicBrainz(`https://musicbrainz.org/ws/2/artist/?${params}`);
+    return res.json((data.artists || []).map((artist) => ({
+      id: artist.id,
+      name: artist.name,
+      disambiguation: artist.disambiguation || '',
+      country: artist.country || '',
+      type: artist.type || '',
+      genres: musicBrainzGenreNames(artist),
+    })));
+  } catch (error) {
+    console.error('MusicBrainz artist search failed:', error.message);
+    return res.status(502).json({ error: 'Não foi possível consultar o MusicBrainz agora. Tente novamente.' });
+  }
+});
+
+app.get('/api/admin/musicbrainz/releases', requireAuth, requireAdmin, async (req, res) => {
+  const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+  const artist = typeof req.query.artist === 'string' ? req.query.artist.trim() : '';
+  if (!query || query.length > 100 || !artist || artist.length > 100) {
+    return res.status(400).json({ error: 'Informe o título e o artista, com até 100 caracteres cada.' });
+  }
+
+  const params = new URLSearchParams({
+    query: `artist:"${escapeMusicBrainzQuery(artist)}" AND releasegroup:"${escapeMusicBrainzQuery(query)}"`,
+    fmt: 'json',
+    limit: '10',
+  });
+
+  try {
+    const data = await requestMusicBrainz(`https://musicbrainz.org/ws/2/release-group/?${params}`);
+    return res.json((data['release-groups'] || []).map((release) => ({
+      id: release.id,
+      title: release.title,
+      artist: (release['artist-credit'] || [])
+        .map((credit) => `${credit.name || credit.artist?.name || ''}${credit.joinphrase || ''}`)
+        .join(''),
+      date: release['first-release-date'] || '',
+      type: release['primary-type'] || '',
+      genres: musicBrainzGenreNames(release),
+    })));
+  } catch (error) {
+    console.error('MusicBrainz release search failed:', error.message);
+    return res.status(502).json({ error: 'Não foi possível consultar o MusicBrainz agora. Tente novamente.' });
+  }
+});
+
+app.get('/api/admin/musicbrainz/releases/:id', requireAuth, requireAdmin, async (req, res) => {
+  if (!/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(req.params.id)) {
+    return res.status(400).json({ error: 'Identificador de lançamento inválido.' });
+  }
+
+  const params = new URLSearchParams({
+    'release-group': req.params.id,
+    inc: 'recordings',
+    fmt: 'json',
+    limit: '100',
+  });
+
+  try {
+    const data = await requestMusicBrainz(`https://musicbrainz.org/ws/2/release/?${params}`);
+    const releases = data.releases || [];
+    releases.sort((first, second) => {
+      const firstDate = first.date || '9999';
+      const secondDate = second.date || '9999';
+      if (firstDate !== secondDate) return firstDate.localeCompare(secondDate);
+      const firstTrackCount = (first.media || []).reduce((count, medium) => count + (medium.tracks || []).length, 0);
+      const secondTrackCount = (second.media || []).reduce((count, medium) => count + (medium.tracks || []).length, 0);
+      return secondTrackCount - firstTrackCount;
+    });
+
+    const selectedRelease = releases.find((release) => (
+      (release.media || []).some((medium) => (medium.tracks || []).length)
+    ));
+    const releaseDate = /^\d{4}-\d{2}-\d{2}$/.test(selectedRelease?.date || '') ? selectedRelease.date : '';
+    const tracks = (selectedRelease?.media || []).flatMap((medium) => (
+      (medium.tracks || []).map((track) => ({
+        title: track.title || track.recording?.title || '',
+        duration: formatMusicBrainzDuration(track.length || track.recording?.length),
+      }))
+    ));
+
+    return res.json({
+      tracks,
+      release_date: releaseDate,
+      cover_url: `https://coverartarchive.org/release-group/${req.params.id}/front-500`,
+    });
+  } catch (error) {
+    console.error('MusicBrainz release details lookup failed:', error.message);
+    return res.status(502).json({ error: 'Não foi possível carregar as faixas no MusicBrainz agora. Tente novamente.' });
+  }
+});
+
 app.post('/api/artists', requireAuth, requireAdmin, async (req, res) => {
   const { name, bio, image_url, banner_url, genres = [] } = req.body;
   if (!name) return res.status(400).json({ error: 'Artist name is required.' });
@@ -1144,7 +1293,7 @@ app.post('/api/releases', requireAuth, requireAdmin, async (req, res) => {
   for (const [index, track] of tracks.entries()) {
     const createdTrack = await runDb(
       `INSERT INTO tracks (release_id, title, duration, explicit, youtube_url, lyrics, translation, track_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [release.id, track.title || `Faixa ${index + 1}`, track.duration || '3:00', track.explicit ? 1 : 0, track.youtube_url || '', track.lyrics || '', track.translation || '', index + 1]
+      [release.id, track.title || `Faixa ${index + 1}`, track.duration || null, track.explicit ? 1 : 0, track.youtube_url || '', track.lyrics || '', track.translation || '', index + 1]
     );
     await saveLegacyTrackContent(createdTrack.id, track);
   }
@@ -1230,7 +1379,7 @@ app.put('/api/releases/:id', requireAuth, requireAdmin, async (req, res) => {
   );
 
   for (const [index, track] of tracks.entries()) {
-    const values = [track.title || `Faixa ${index + 1}`, track.duration || '3:00', track.explicit ? 1 : 0, track.youtube_url || '', track.lyrics || '', track.translation || '', index + 1];
+    const values = [track.title || `Faixa ${index + 1}`, track.duration || null, track.explicit ? 1 : 0, track.youtube_url || '', track.lyrics || '', track.translation || '', index + 1];
     let trackId = trackAssignments[index];
     if (trackId != null) {
       await runDb(
