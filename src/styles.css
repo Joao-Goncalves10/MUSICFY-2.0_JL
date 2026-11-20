@@ -2720,6 +2720,13 @@ select option:checked {
   gap: 12px;
 }
 
+.auth-registration-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
 input,
 textarea {
   width: 100%;
@@ -7382,6 +7389,40 @@ textarea {
   color: var(--muted);
 }
 
+.approval-setting-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+}
+
+.approval-setting-copy {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.approval-setting-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.approval-setting-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.approval-setting-toggle input {
+  width: auto;
+  accent-color: var(--primary);
+}
+
 .admin-section-kicker {
   color: var(--primary-strong);
   font-size: 0.72rem;
@@ -7548,6 +7589,11 @@ textarea {
   }
 
   .admin-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .approval-setting-card {
     align-items: flex-start;
     flex-direction: column;
   }
