@@ -135,6 +135,15 @@ button:focus-visible {
   padding: 24px 30px 80px;
 }
 
+.app-shell.has-shell-accent {
+  background: radial-gradient(
+    ellipse at 50% 0%,
+    color-mix(in srgb, var(--shell-accent) 24%, transparent),
+    transparent 46rem
+  );
+  background-repeat: no-repeat;
+}
+
 .glass-panel {
   background: var(--panel-background);
   border: 1px solid var(--panel-border);
@@ -1843,27 +1852,81 @@ select option:checked {
 }
 
 .artist-detail-page {
-  background:
-    radial-gradient(circle at 15% 8%, color-mix(in srgb, var(--artist-accent, #2563eb) 28%, transparent), transparent 32%);
-  padding: 18px;
-  border-radius: 28px;
+  min-width: 0;
 }
 
 .artist-detail-page .artist-main-action > span,
-.artist-detail-page .follow-btn,
-.release-view .primary-btn,
-.release-view .secondary-btn {
-  background: linear-gradient(135deg, color-mix(in srgb, var(--artist-accent, var(--release-accent, #2563eb)) 82%, #fff), var(--artist-accent, var(--release-accent, #8b5cf6)));
+.artist-detail-page .follow-btn {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--artist-accent, #2563eb) 82%, #fff), var(--artist-accent, #8b5cf6));
   color: #fff;
   border-color: transparent;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--artist-accent, var(--release-accent, #2563eb)) 24%, transparent);
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--artist-accent, #2563eb) 24%, transparent);
 }
 
 .release-view {
-  background:
-    radial-gradient(circle at 50% 4%, color-mix(in srgb, var(--release-accent, #2563eb) 24%, transparent), transparent 35%);
-  border-radius: 28px;
-  padding: 18px;
+  min-width: 0;
+}
+
+.release-view .primary-btn,
+.release-view .secondary-btn {
+  background: linear-gradient(135deg, color-mix(in srgb, var(--release-accent, #2563eb) 82%, #fff), var(--release-accent, #8b5cf6));
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--release-accent, #2563eb) 24%, transparent);
+}
+
+.artist-card {
+  border-color: color-mix(in srgb, var(--artist-accent, #2563eb) 26%, rgba(255,255,255,0.085));
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--artist-accent, #2563eb) 13%, rgba(255,255,255,0.065)),
+    rgba(255,255,255,0.018)
+  );
+}
+
+.artist-card:hover {
+  border-color: color-mix(in srgb, var(--artist-accent, #2563eb) 48%, transparent);
+  box-shadow: 0 18px 40px color-mix(in srgb, var(--artist-accent, #2563eb) 18%, transparent);
+}
+
+.artist-detail-page .artist-release-row:hover {
+  background: color-mix(in srgb, var(--release-accent, var(--artist-accent, #2563eb)) 14%, transparent);
+}
+
+.artist-detail-page .artist-release-open,
+.artist-detail-page .artist-page-tabs a:hover {
+  color: color-mix(in srgb, var(--artist-accent, #2563eb) 72%, var(--text));
+}
+
+.release-card {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 26%, rgba(255,255,255,0.085));
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 12%, rgba(255,255,255,0.065)),
+    rgba(255,255,255,0.018)
+  );
+}
+
+.release-card:hover {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 50%, transparent);
+  box-shadow: 0 22px 44px color-mix(in srgb, var(--release-accent, #2563eb) 19%, transparent);
+}
+
+.release-card .release-meta {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 7%, rgba(255,255,255,0.025)),
+    rgba(255,255,255,0.005)
+  );
+}
+
+.release-card .listen-album-btn {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 42%, transparent);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 36%, rgba(255,255,255,0.19)),
+    color-mix(in srgb, var(--release-accent, #2563eb) 16%, rgba(255,255,255,0.055))
+  );
 }
 
 .home-review-author-row {
@@ -8038,4 +8101,126 @@ textarea {
     grid-column: 2 / -1;
     justify-content: flex-end;
   }
+}
+
+:root[data-theme="light"] .release-card {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 30%, rgba(36,56,76,0.09));
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 10%, rgba(255,255,255,0.96)),
+    rgba(246,249,251,0.84)
+  );
+}
+
+:root[data-theme="light"] .release-card:hover {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 52%, transparent);
+  box-shadow: 0 20px 40px color-mix(in srgb, var(--release-accent, #2563eb) 18%, rgba(37,58,79,0.15));
+}
+
+:root[data-theme="light"] .release-card .release-meta {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 6%, rgba(255,255,255,0.88)),
+    rgba(250,252,253,0.95)
+  );
+}
+
+:root[data-theme="light"] .release-card .listen-album-btn {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 24%, #fff),
+    color-mix(in srgb, var(--release-accent, #2563eb) 12%, rgba(228,237,233,0.7))
+  );
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 36%, transparent);
+}
+
+:root[data-theme="light"] .artist-card:hover {
+  border-color: color-mix(in srgb, var(--artist-accent, #2563eb) 42%, transparent);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--artist-accent, #2563eb) 13%, #fff),
+    rgba(255,255,255,0.7)
+  );
+  box-shadow: 0 18px 40px color-mix(in srgb, var(--artist-accent, #2563eb) 15%, transparent);
+}
+
+:root[data-theme="light"] .artist-detail-page .artist-release-row:hover {
+  background: color-mix(in srgb, var(--release-accent, var(--artist-accent, #2563eb)) 13%, transparent);
+}
+
+.artist-detail-page .artist-main-action:hover {
+  color: var(--artist-accent, var(--primary));
+}
+
+.release-view .release-detail {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 28%, rgba(255,255,255,0.12));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 17%, rgba(255,255,255,0.11)),
+    rgba(255,255,255,0.035)
+  );
+}
+
+.release-view .stat-pill,
+.release-view .track-item,
+.release-view .lyrics-panel {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 25%, var(--line));
+  background: linear-gradient(
+    125deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 9%, var(--glass-soft)),
+    var(--glass-soft)
+  );
+}
+
+.release-view .track-item:hover,
+.release-view .track-item.is-open {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 52%, transparent);
+  background: linear-gradient(
+    125deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 15%, var(--glass)),
+    var(--glass-soft)
+  );
+}
+
+.release-view .track-number {
+  background: color-mix(in srgb, var(--release-accent, #2563eb) 15%, var(--glass-soft));
+}
+
+.release-view .track-link-btn,
+.release-view .track-compact-btn,
+.release-view .close-lyrics-btn {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 35%, var(--line));
+  background: color-mix(in srgb, var(--release-accent, #2563eb) 11%, var(--glass-soft));
+}
+
+.release-view .track-link-btn:hover,
+.release-view .track-compact-btn:hover,
+.release-view .close-lyrics-btn:hover {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 58%, transparent);
+  background: color-mix(in srgb, var(--release-accent, #2563eb) 20%, var(--glass));
+}
+
+.home-featured-cta {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 58%, #fff);
+  color: #10151a;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 78%, #fff),
+    var(--release-accent, #8b5cf6)
+  );
+}
+
+.home-featured-arrow:hover {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 55%, #fff);
+  background: color-mix(in srgb, var(--release-accent, #2563eb) 44%, rgba(10,12,18,0.88));
+}
+
+.home-featured-indicators button.is-active {
+  background: var(--release-accent, #fff);
+}
+
+.home-review-release:hover,
+.home-recent-release:hover {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 42%, transparent);
+  background: color-mix(in srgb, var(--release-accent, #2563eb) 11%, transparent);
 }
