@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY uq_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS app_settings (
+  setting_key VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  setting_value VARCHAR(255) NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (setting_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS user_follows (
   follower_id BIGINT UNSIGNED NOT NULL,
   followed_id BIGINT UNSIGNED NOT NULL,
@@ -52,6 +59,7 @@ CREATE TABLE IF NOT EXISTS artists (
   image_url VARCHAR(512) NULL,
   banner_url VARCHAR(512) NULL,
   genre VARCHAR(191) NULL,
+  accent_color VARCHAR(7) NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -91,6 +99,7 @@ CREATE TABLE IF NOT EXISTS releases (
   title VARCHAR(191) NOT NULL,
   artist_id BIGINT UNSIGNED NOT NULL,
   cover_url VARCHAR(512) NULL,
+  accent_color VARCHAR(7) NULL,
   release_type VARCHAR(32) NOT NULL,
   release_date DATE NOT NULL,
   genre VARCHAR(191) NULL,
@@ -103,6 +112,16 @@ CREATE TABLE IF NOT EXISTS releases (
   KEY idx_releases_artist_id (artist_id),
   KEY idx_releases_release_date (release_date),
   CONSTRAINT fk_releases_artist FOREIGN KEY (artist_id) REFERENCES artists(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS release_artists (
+  release_id BIGINT UNSIGNED NOT NULL,
+  artist_id BIGINT UNSIGNED NOT NULL,
+  sort_order INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (release_id, artist_id),
+  KEY idx_release_artists_artist_id (artist_id),
+  CONSTRAINT fk_release_artists_release FOREIGN KEY (release_id) REFERENCES releases(id) ON DELETE CASCADE,
+  CONSTRAINT fk_release_artists_artist FOREIGN KEY (artist_id) REFERENCES artists(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS tracks (
