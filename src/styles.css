@@ -8874,3 +8874,150 @@ body {
     width: min(340px, calc(100vw - 24px));
   }
 }
+
+/* ==========================================================================
+   COR VARIÁVEL NO MODAL DE LETRAS (LYRICS-VIEWER)
+   ========================================================================== */
+
+.lyrics-viewer {
+  --lyrics-accent: var(--release-accent, var(--artist-accent, var(--primary)));
+  background:
+    radial-gradient(
+      circle at 12% 0%,
+      color-mix(in srgb, var(--lyrics-accent) 28%, transparent),
+      transparent 48%
+    ),
+    radial-gradient(
+      circle at 92% 100%,
+      color-mix(in srgb, var(--lyrics-accent) 16%, transparent),
+      transparent 45%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--lyrics-accent) 15%, rgba(14, 26, 48, 0.95)),
+      rgba(8, 15, 29, 0.94)
+    );
+  border: 1px solid color-mix(in srgb, var(--lyrics-accent) 38%, var(--line));
+  box-shadow:
+    0 24px 56px rgba(2, 6, 16, 0.65),
+    0 0 36px color-mix(in srgb, var(--lyrics-accent) 18%, transparent);
+}
+
+/* Coluna lateral (capa + dados da faixa) */
+.lyrics-viewer-aside {
+  background: color-mix(in srgb, var(--lyrics-accent) 10%, rgba(7, 13, 26, 0.55));
+  border-right: 1px solid color-mix(in srgb, var(--lyrics-accent) 24%, var(--line));
+}
+
+.lyrics-viewer-aside img {
+  box-shadow: 0 14px 32px color-mix(in srgb, var(--lyrics-accent) 25%, rgba(0, 0, 0, 0.55));
+}
+
+.lyrics-viewer-eyebrow {
+  color: color-mix(in srgb, var(--lyrics-accent) 78%, #ffffff);
+}
+
+.lyrics-viewer-track-info a {
+  color: color-mix(in srgb, var(--lyrics-accent) 82%, #ffffff);
+}
+
+.lyrics-viewer-track-info a:hover {
+  text-decoration: underline;
+}
+
+/* Botão "Ouvir faixa" */
+.lyrics-viewer-listen {
+  background: linear-gradient(
+    135deg,
+    var(--lyrics-accent),
+    color-mix(in srgb, var(--lyrics-accent) 72%, #091120)
+  );
+  border: 1px solid color-mix(in srgb, var(--lyrics-accent) 65%, #ffffff);
+  color: #ffffff;
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--lyrics-accent) 28%, transparent);
+}
+
+.lyrics-viewer-listen:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+/* Cabeçalho e botões de alternância (Letra / Tradução / Ambas) */
+.lyrics-viewer-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--lyrics-accent) 24%, var(--line));
+}
+
+.lyrics-viewer-modes {
+  background: color-mix(in srgb, var(--lyrics-accent) 10%, rgba(7, 13, 26, 0.65));
+  border: 1px solid color-mix(in srgb, var(--lyrics-accent) 24%, var(--line));
+}
+
+.lyrics-viewer-modes button.is-active {
+  background: color-mix(in srgb, var(--lyrics-accent) 28%, rgba(255, 255, 255, 0.08));
+  border-color: color-mix(in srgb, var(--lyrics-accent) 55%, transparent);
+  color: #ffffff;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--lyrics-accent) 22%, transparent);
+}
+
+/* Botão Fechar (×) */
+.lyrics-viewer-close:hover {
+  background: color-mix(in srgb, var(--lyrics-accent) 24%, rgba(255, 255, 255, 0.1));
+  border-color: color-mix(in srgb, var(--lyrics-accent) 45%, transparent);
+}
+
+/* Scrollbar interna da letra */
+.lyrics-viewer-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--lyrics-accent) 45%, rgba(255, 255, 255, 0.18));
+  border-radius: 999px;
+}
+
+/* ==========================================================================
+   MODO CLARO - LYRICS-VIEWER
+   ========================================================================== */
+
+:root[data-theme="light"] .lyrics-viewer {
+  --lyrics-accent: var(--release-accent, var(--artist-accent, var(--primary)));
+  background:
+    radial-gradient(
+      circle at 12% 0%,
+      color-mix(in srgb, var(--lyrics-accent) 22%, transparent),
+      transparent 52%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--lyrics-accent) 12%, rgba(255, 255, 255, 0.96)),
+      rgba(246, 250, 253, 0.92)
+    );
+  border-color: color-mix(in srgb, var(--lyrics-accent) 34%, rgba(30, 48, 69, 0.14));
+  box-shadow:
+    0 24px 52px rgba(20, 35, 56, 0.18),
+    0 0 28px color-mix(in srgb, var(--lyrics-accent) 14%, transparent);
+}
+
+:root[data-theme="light"] .lyrics-viewer-aside {
+  background: color-mix(in srgb, var(--lyrics-accent) 8%, rgba(240, 246, 252, 0.78));
+  border-right-color: color-mix(in srgb, var(--lyrics-accent) 22%, rgba(30, 48, 69, 0.1));
+}
+
+:root[data-theme="light"] .lyrics-viewer-eyebrow,
+:root[data-theme="light"] .lyrics-viewer-track-info a {
+  color: color-mix(in srgb, var(--lyrics-accent) 85%, #0f172a);
+}
+
+:root[data-theme="light"] .lyrics-viewer-header {
+  border-bottom-color: color-mix(in srgb, var(--lyrics-accent) 20%, rgba(30, 48, 69, 0.1));
+}
+
+:root[data-theme="light"] .lyrics-viewer-modes {
+  background: color-mix(in srgb, var(--lyrics-accent) 8%, rgba(255, 255, 255, 0.8));
+  border-color: color-mix(in srgb, var(--lyrics-accent) 22%, rgba(30, 48, 69, 0.12));
+}
+
+:root[data-theme="light"] .lyrics-viewer-modes button.is-active {
+  background: var(--lyrics-accent);
+  color: #ffffff;
+}
+
+:root[data-theme="light"] .lyrics-column p {
+  color: var(--text);
+}

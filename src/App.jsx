@@ -2561,7 +2561,7 @@ function ReleaseDetailPage() {
             if (event.target === event.currentTarget) setOpenLyricsTrackId(null);
           }}
         >
-          <section className="lyrics-viewer" role="dialog" aria-modal="true" aria-labelledby="lyrics-viewer-title">
+          <section className="lyrics-viewer" role="dialog" aria-modal="true" aria-labelledby="lyrics-viewer-title" style={{ "--release-accent": release?.accent_color || release?.artist_accent_color || "#31b6c5", }}>
             <button type="button" className="lyrics-viewer-close" onClick={() => setOpenLyricsTrackId(null)} aria-label="Fechar visualização da letra" autoFocus>
               <span aria-hidden="true">×</span>
             </button>
