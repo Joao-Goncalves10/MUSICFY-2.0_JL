@@ -2287,7 +2287,7 @@ select option:checked {
   background: transparent;
   box-shadow: none;
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--artist-accent, #64748b) 12%, transparent), transparent 76%);
+    linear-gradient(135deg, color-mix(in srgb, var(--artist-accent, #64748b) 16%, transparent), transparent 76%);
 }
 
 .artist-card:hover {
@@ -8797,80 +8797,4 @@ body {
 :root[data-theme="light"] .home-review-card .home-review-release {
   background: color-mix(in srgb, var(--card-accent) 8%, rgba(255, 255, 255, 0.75));
   border-color: color-mix(in srgb, var(--card-accent) 22%, rgba(30, 48, 69, 0.12));
-}
-
-.youtube-mini-player {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 80;
-  width: min(340px, calc(100vw - 32px));
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--glass-strong);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.youtube-mini-player-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-}
-
-.youtube-mini-player-info {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
-}
-
-.youtube-mini-player-info strong,
-.youtube-mini-player-info span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.youtube-mini-player-info strong {
-  color: var(--text);
-  font-size: 0.84rem;
-}
-
-.youtube-mini-player-info span {
-  color: var(--muted);
-  font-size: 0.72rem;
-}
-
-.youtube-mini-player-close {
-  display: grid;
-  flex: 0 0 30px;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  background: var(--glass-soft);
-  color: var(--text);
-  font-size: 1.25rem;
-  line-height: 1;
-}
-
-.youtube-mini-player iframe {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border: 0;
-}
-
-@media (max-width: 600px) {
-  .youtube-mini-player {
-    right: 12px;
-    bottom: 12px;
-    width: min(340px, calc(100vw - 24px));
-  }
 }
