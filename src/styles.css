@@ -2287,7 +2287,7 @@ select option:checked {
   background: transparent;
   box-shadow: none;
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--artist-accent, #64748b) 12%, transparent), transparent 76%);
+    linear-gradient(135deg, color-mix(in srgb, var(--artist-accent, #64748b) 16%, transparent), transparent 76%);
 }
 
 .artist-card:hover {
