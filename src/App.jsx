@@ -11,6 +11,26 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
 });
 
+const PlayerContext = createContext(null);
+
+const getYoutubeVideoId = (value) => {
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
+    const host = url.hostname.replace(/^www\./, '').toLowerCase();
+    let videoId = '';
+
+    if (host === 'youtu.be') {
+      videoId = url.pathname.split('/').filter(Boolean)[0] || '';
+    } else if (['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com'].includes(host)) {
+      videoId = url.searchParams.get('v') || url.pathname.match(/^\/(?:embed|shorts|live)\/([^/?]+)/)?.[1] || '';
+    }
+
+    return /^[\w-]{11}$/.test(videoId) ? videoId : '';
+  } catch {
+    return '';
+  }
+};
+
 const getArtistFallbackImage = (artist) => {
   const name = String(artist?.name || '').trim().toLocaleLowerCase();
   if (name === 'adéla') return adelaProfileImage;
@@ -97,6 +117,7 @@ function ProtectedRoute({ admin = false, children }) {
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('musicfy-theme') === 'light' ? 'light' : 'dark');
+  const [playerTrack, setPlayerTrack] = useState(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -105,28 +126,55 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <div className="app-shell">
-        <Navbar
-          theme={theme}
-          onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-        />
-        <div className="app-layout">
-          <Sidebar />
-          <main className="page-shell">
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/explore" element={<ExplorePage />} />
-              <Route path="/artists" element={<ArtistsPage />} />
-              <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
-              <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
-              <Route path="/profile/:userId" element={<ProfilePage />} />
-              <Route path="/auth" element={<AuthPage />} />
-              <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
-            </Routes>
-          </main>
+      <PlayerContext.Provider value={setPlayerTrack}>
+        <div className="app-shell">
+          <Navbar
+            theme={theme}
+            onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+          />
+          <div className="app-layout">
+            <Sidebar />
+            <main className="page-shell">
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/explore" element={<ExplorePage />} />
+                <Route path="/artists" element={<ArtistsPage />} />
+                <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
+                <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
+                <Route path="/profile/:userId" element={<ProfilePage />} />
+                <Route path="/auth" element={<AuthPage />} />
+                <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
+              </Routes>
+            </main>
+          </div>
         </div>
-      </div>
+        {playerTrack && <YoutubeMiniPlayer track={playerTrack} onClose={() => setPlayerTrack(null)} />}
+      </PlayerContext.Provider>
     </AuthProvider>
+  );
+}
+
+function YoutubeMiniPlayer({ track, onClose }) {
+  return (
+    <aside className="youtube-mini-player" aria-label="Miniplayer do YouTube">
+      <div className="youtube-mini-player-header">
+        <div className="youtube-mini-player-info">
+          <strong>{track.title}</strong>
+          <span>{track.artistName} · {track.releaseTitle}</span>
+        </div>
+        <button type="button" className="youtube-mini-player-close" onClick={onClose} aria-label="Fechar miniplayer">
+          ×
+        </button>
+      </div>
+      <iframe
+        key={track.videoId}
+        src={`https://www.youtube-nocookie.com/embed/${track.videoId}?autoplay=1&playsinline=1`}
+        title={`Vídeo de ${track.title}`}
+        allow="autoplay; encrypted-media; picture-in-picture; web-share"
+        referrerPolicy="strict-origin-when-cross-origin"
+        allowFullScreen
+      />
+    </aside>
   );
 }
 
@@ -558,6 +606,7 @@ function ArtistCard({ artist }) {
 function ReleaseDetailPage() {
   const { releaseId } = useParams();
   const { user } = useAuth();
+  const setPlayerTrack = useContext(PlayerContext);
   const [releaseInfo, setReleaseInfo] = useState(null);
   const [reviewText, setReviewText] = useState('');
   const [rating, setRating] = useState(8);
@@ -676,6 +725,16 @@ function ReleaseDetailPage() {
 
   const { release, tracks, reviews } = releaseInfo;
   const selectedLyricsTrack = tracks.find((track) => track.id === openLyricsTrackId);
+  const playTrack = (track) => {
+    const videoId = getYoutubeVideoId(track.youtube_url || '');
+    if (!videoId) return;
+    setPlayerTrack({
+      videoId,
+      title: track.title,
+      artistName: release.artist_name || 'Artista',
+      releaseTitle: release.title,
+    });
+  };
   const isFutureRelease = new Date(release.release_date) > new Date();
   const formattedReleaseDate = release.release_date ? new Date(release.release_date + 'T00:00:00').toLocaleDateString('pt-BR', {
     day: '2-digit',
@@ -758,9 +817,15 @@ function ReleaseDetailPage() {
                   </div>
                   <div className="track-actions">
                     {track.youtube_url && (
-                      <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">
-                        Ouvir
-                      </a>
+                      getYoutubeVideoId(track.youtube_url) ? (
+                        <button type="button" onClick={() => playTrack(track)} className="track-link-btn">
+                          Ouvir
+                        </button>
+                      ) : (
+                        <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">
+                          Ouvir
+                        </a>
+                      )
                     )}
                     {(track.lyrics || track.translation) && (
                       <button
@@ -835,9 +900,15 @@ function ReleaseDetailPage() {
                 <span>{release.title}</span>
               </div>
               {selectedLyricsTrack.youtube_url && (
-                <a className="lyrics-viewer-listen" href={selectedLyricsTrack.youtube_url} target="_blank" rel="noreferrer">
-                  Ouvir faixa <span aria-hidden="true">↗</span>
-                </a>
+                getYoutubeVideoId(selectedLyricsTrack.youtube_url) ? (
+                  <button type="button" className="lyrics-viewer-listen" onClick={() => playTrack(selectedLyricsTrack)}>
+                    Ouvir faixa <span aria-hidden="true">↗</span>
+                  </button>
+                ) : (
+                  <a className="lyrics-viewer-listen" href={selectedLyricsTrack.youtube_url} target="_blank" rel="noreferrer">
+                    Ouvir faixa <span aria-hidden="true">↗</span>
+                  </a>
+                )
               )}
             </aside>
 
