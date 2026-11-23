@@ -877,10 +877,15 @@ function HomePage() {
 
   const handleReviewDeleted = (reviewId) => {
     setReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
+    setFollowingReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
+    setGeneralReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
   };
 
   const normalizedFeedQuery = normalizeGenre(feedQuery);
-  const visibleReviews = reviews
+  const selectedFeedReviews = user
+    ? (feedMode === 'following' ? followingReviews : generalReviews)
+    : generalReviews;
+  const visibleReviews = selectedFeedReviews
     .filter((review) => (
       (!normalizedFeedQuery || normalizeGenre(`${review.full_name} ${review.username} ${review.release_title} ${review.artist_name} ${review.review_text}`).includes(normalizedFeedQuery))
       && (feedRatingFilter === 'all' || Number(review.rating || 0) >= Number(feedRatingFilter))
@@ -889,10 +894,6 @@ function HomePage() {
   const visibleRecentReleases = recentReleases.filter((release) => (
     recentReleaseTypeFilter === 'Todos' || release.release_type === recentReleaseTypeFilter
   ));
-
-  const visibleReviews = user
-    ? (feedMode === 'following' ? followingReviews : generalReviews)
-    : generalReviews;
 
   return (
     <div className="home-page">
@@ -996,8 +997,6 @@ function HomePage() {
 
                   {review.review_text ? (
                     <p className="home-review-text">{review.review_text}</p>
-                  ) : reviews.length ? (
-                    <p className="explore-empty-state">Nenhuma resenha corresponde aos filtros selecionados.</p>
                   ) : (
                     <p className="home-review-text is-empty">Compartilhou uma nota para este lançamento.</p>
                   )}
@@ -1324,16 +1323,7 @@ function ArtistsPage() {
       </div>
       {filtered.length ? (
         <div className="artist-grid">
-        {filtered.map((artist) => (
-    <div className="content-stack">
-      <div className="section-header">
-        <h2>Artistas</h2>
-        <span className="explore-filter-label">{artists.length} artistas</span>
-      </div>
-      <div className="artist-grid">
-        {artists.map((artist) => (
           <ArtistCard key={artist.id} artist={artist} />
-        ))}
         </div>
       ) : (
         <div className="profile-empty-state glass-panel">
@@ -1342,8 +1332,6 @@ function ArtistsPage() {
           <p>Tente outro nome ou gênero.</p>
         </div>
       )}
-      </div>
-      {!artists.length && <p className="explore-empty-state">Nenhum artista cadastrado ainda.</p>}
     </div>
   );
 }
