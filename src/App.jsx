@@ -50,6 +50,47 @@ const getReleaseFallbackImage = (release) => (
     : imagePlaceholder
 );
 
+const accentPalette = [
+  ['Azul elétrico', '#2563eb'], ['Azul oceano', '#0ea5e9'], ['Ciano', '#06b6d4'],
+  ['Verde esmeralda', '#10b981'], ['Verde Lima', '#84cc16'], ['Lima neón', '#a3e635'],
+  ['Amarelo ouro', '#eab308'], ['Âmbar', '#f59e0b'], ['Laranja', '#f97316'],
+  ['Coral', '#fb7185'], ['Vermelho', '#ef4444'], ['Rubi', '#dc2626'],
+  ['Rosa', '#ec4899'], ['Magenta', '#d946ef'], ['Roxo', '#a855f7'],
+  ['Violeta', '#8b5cf6'], ['Índigo', '#6366f1'], ['Grafite', '#64748b'],
+  ['Turquesa', '#14b8a6'], ['Menta', '#34d399'], ['Oliva', '#65a30d'],
+  ['Mostarda', '#ca8a04'], ['Pêssego', '#fdba74'], ['Salmão', '#fb7185'],
+  ['Framboesa', '#be123c'], ['Borgonha', '#881337'], ['Lavanda', '#c4b5fd'],
+  ['Lilás', '#c084fc'], ['Azul royal', '#1d4ed8'], ['Azul noite', '#1e3a8a'],
+  ['Cobalto', '#1e40af'], ['Aqua', '#22d3ee'], ['Marinho', '#164e63'],
+  ['Floresta', '#166534'], ['Musgo', '#4d7c0f'], ['Chocolate', '#78350f'],
+  ['Púrpura', '#7e22ce'], ['Berinjela', '#581c87'], ['Prata', '#94a3b8'],
+];
+
+const AccentPicker = ({ label, value, onChange }) => (
+  <fieldset className="accent-picker">
+    <legend>{label}</legend>
+    <div className="accent-picker-options">
+      {accentPalette.map(([name, color]) => (
+        <button
+          key={color}
+          type="button"
+          className={`accent-swatch${value === color ? ' is-selected' : ''}`}
+          style={{ '--accent-swatch': color }}
+          aria-label={name}
+          title={name}
+          aria-pressed={value === color}
+          onClick={() => onChange(color)}
+        />
+      ))}
+      {value && (
+        <button type="button" className="accent-clear" onClick={() => onChange('')} title="Remover cor">
+          Sem cor
+        </button>
+      )}
+    </div>
+  </fieldset>
+);
+
 const formatFeedDate = (value) => {
   if (!value) return '';
   const dateValue = String(value);
@@ -706,7 +747,9 @@ function FeaturedCarousel({ slides, user }) {
         />
         <div className="home-featured-shade" />
         <div className="home-featured-copy">
-          <p className="eyebrow">Em destaque · {activeSlide.artist_name}</p>
+          <p className="eyebrow">
+            Em destaque · {[activeSlide.artist_name, ...(activeSlide.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')}
+          </p>
           <h2>{activeSlide.title}</h2>
           <p>{activeSlide.description}</p>
           <Link
@@ -769,6 +812,9 @@ function FeaturedCarousel({ slides, user }) {
 function HomePage() {
   const { user } = useAuth();
   const [reviews, setReviews] = useState([]);
+  const [followingReviews, setFollowingReviews] = useState([]);
+  const [generalReviews, setGeneralReviews] = useState([]);
+  const [feedMode, setFeedMode] = useState('following');
   const [featuredSlides, setFeaturedSlides] = useState([]);
   const [recentReleases, setRecentReleases] = useState([]);
   const [feedQuery, setFeedQuery] = useState('');
@@ -786,6 +832,8 @@ function HomePage() {
       .then((response) => {
         if (!active) return;
         setReviews(response.data.reviews || []);
+        setFollowingReviews(response.data.following_reviews || []);
+        setGeneralReviews(response.data.general_reviews || []);
         setFeaturedSlides(response.data.featured_slides || []);
         setRecentReleases(response.data.recent_releases || []);
       })
@@ -810,20 +858,34 @@ function HomePage() {
         ? { ...review, liked_by_user: liked, like_count: likeCount }
         : review
     )));
+    setFollowingReviews((current) => current.map((review) => (
+      review.id === reviewId ? { ...review, liked_by_user: liked, like_count: likeCount } : review
+    )));
+    setGeneralReviews((current) => current.map((review) => (
+      review.id === reviewId ? { ...review, liked_by_user: liked, like_count: likeCount } : review
+    )));
   };
 
   const handleReviewUpdated = (updatedReview) => {
-    setReviews((current) => current.map((review) => (
+    const updateList = (current) => current.map((review) => (
       String(review.id) === String(updatedReview.id) ? updatedReview : review
-    )));
+    ));
+    setReviews(updateList);
+    setFollowingReviews(updateList);
+    setGeneralReviews(updateList);
   };
 
   const handleReviewDeleted = (reviewId) => {
     setReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
+    setFollowingReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
+    setGeneralReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
   };
 
   const normalizedFeedQuery = normalizeGenre(feedQuery);
-  const visibleReviews = reviews
+  const selectedFeedReviews = user
+    ? (feedMode === 'following' ? followingReviews : generalReviews)
+    : generalReviews;
+  const visibleReviews = selectedFeedReviews
     .filter((review) => (
       (!normalizedFeedQuery || normalizeGenre(`${review.full_name} ${review.username} ${review.release_title} ${review.artist_name} ${review.review_text}`).includes(normalizedFeedQuery))
       && (feedRatingFilter === 'all' || Number(review.rating || 0) >= Number(feedRatingFilter))
@@ -861,8 +923,8 @@ function HomePage() {
         <section className="home-social-feed" aria-labelledby="home-feed-title">
           <div className="home-feed-section-heading">
             <div>
-              <p className="eyebrow">Seu círculo musical</p>
-              <h2 id="home-feed-title">Resenhas recentes</h2>
+              <p className="eyebrow">Comunidade musical</p>
+              <h2 id="home-feed-title">Resenhas</h2>
             </div>
             {!isLoading && <span>{visibleReviews.length} de {reviews.length} resenhas</span>}
           </div>
@@ -881,6 +943,29 @@ function HomePage() {
               <option value="5">Nota 5 ou mais</option>
             </select>
           </div>
+
+          {user && (
+            <div className="home-feed-tabs" role="tablist" aria-label="Tipo de feed">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={feedMode === 'following'}
+                className={feedMode === 'following' ? 'is-active' : ''}
+                onClick={() => setFeedMode('following')}
+              >
+                Seguindo
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={feedMode === 'general'}
+                className={feedMode === 'general' ? 'is-active' : ''}
+                onClick={() => setFeedMode('general')}
+              >
+                Para você
+              </button>
+            </div>
+          )}
 
           {error && <p className="error-text" role="alert">{error}</p>}
           {isLoading ? (
@@ -912,8 +997,6 @@ function HomePage() {
 
                   {review.review_text ? (
                     <p className="home-review-text">{review.review_text}</p>
-                  ) : reviews.length ? (
-                    <p className="explore-empty-state">Nenhuma resenha corresponde aos filtros selecionados.</p>
                   ) : (
                     <p className="home-review-text is-empty">Compartilhou uma nota para este lançamento.</p>
                   )}
@@ -982,7 +1065,7 @@ function HomePage() {
                   <span>
                     <small>{release.release_type} · {formatFeedDate(release.release_date)}</small>
                     <strong>{release.title}</strong>
-                    <span>{release.artist_name}</span>
+                    <span>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')}</span>
                   </span>
                   <span className="home-recent-arrow" aria-hidden="true">↗</span>
                 </Link>
@@ -1208,23 +1291,47 @@ function ExplorePage() {
 
 function ArtistsPage() {
   const [artists, setArtists] = useState([]);
+  const [query, setQuery] = useState('');
+  const [sortMode, setSortMode] = useState('popular');
 
   useEffect(() => {
     api.get('/artists').then((res) => setArtists(res.data)).catch(console.error);
   }, []);
 
+  const filtered = artists
+    .filter((artist) => `${artist.name || ''} ${artist.genre_names || artist.genre || ''}`.toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) => sortMode === 'name'
+      ? (a.name || '').localeCompare(b.name || '')
+      : Number(b.release_count || 0) - Number(a.release_count || 0));
+
   return (
-    <div className="content-stack">
-      <div className="section-header">
-        <h2>Artistas</h2>
-        <span className="explore-filter-label">{artists.length} artistas</span>
+    <div className="content-stack artists-page">
+      <header className="artists-page-header">
+        <div>
+          <p className="eyebrow">Explore o catálogo</p>
+          <h1>Artistas</h1>
+          <p>Encontre novos sons, explore discografias e siga seus artistas favoritos.</p>
+        </div>
+        <span className="artists-page-count">{artists.length} artistas</span>
+      </header>
+      <div className="artists-toolbar">
+        <input className="search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar artistas ou gêneros" />
+        <select aria-label="Ordenar artistas" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
+          <option value="popular">Mais lançamentos</option>
+          <option value="name">Nome A-Z</option>
+        </select>
       </div>
-      <div className="artist-grid">
-        {artists.map((artist) => (
+      {filtered.length ? (
+        <div className="artist-grid">
           <ArtistCard key={artist.id} artist={artist} />
-        ))}
-      </div>
-      {!artists.length && <p className="explore-empty-state">Nenhum artista cadastrado ainda.</p>}
+        </div>
+      ) : (
+        <div className="profile-empty-state glass-panel">
+          <span aria-hidden="true">⌕</span>
+          <h3>Nenhum artista encontrado</h3>
+          <p>Tente outro nome ou gênero.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1774,8 +1881,12 @@ function ArtistDetailPage() {
 
   if (!artistData) return <div className="loading-panel">Carregando artista…</div>;
 
+  const accentStyle = artistData.artist.accent_color
+    ? { '--artist-accent': artistData.artist.accent_color }
+    : undefined;
+
   return (
-    <div className="content-stack">
+    <div className="content-stack artist-detail-page" style={accentStyle}>
       <div className="artist-hero glass-panel">
         <ArtworkBackdrop src={artistBannerUrl || getArtistFallbackImage(artistData.artist)} className="artist-hero-artwork-glow" />
         <img
@@ -1848,13 +1959,18 @@ function ArtistDetailPage() {
 }
 
 function ReleaseCard({ release, showListen = false }) {
+  const releaseArtistNames = [
+    release.artist_name,
+    ...(release.featured_artists || []).map((artist) => artist.name),
+  ].filter((name, index, names) => name && names.indexOf(name) === index);
+
   return (
     <Link to={`/releases/${release.id}`} className="release-card glass-panel">
       <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
       <div className="release-meta">
         <span>{release.release_type}</span>
         <h3>{release.title}</h3>
-        <p>{release.artist_name || 'Artista'}</p>
+        <p>{releaseArtistNames.join(' feat. ') || 'Artista'}</p>
         <small>{release.release_date}</small>
         {showListen && <span className="listen-album-btn"><span aria-hidden="true">▶</span> Ouvir álbum</span>}
       </div>
@@ -1866,7 +1982,11 @@ function ArtistCard({ artist }) {
   const releaseCount = Number(artist.release_count || 0);
 
   return (
-    <Link to={`/artists/${artist.id}`} className="artist-card">
+    <Link
+      to={`/artists/${artist.id}`}
+      className="artist-card"
+      style={artist.accent_color ? { '--artist-accent': artist.accent_color } : undefined}
+    >
       <img src={artist.image_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt={artist.name} />
       <div>
         <h3>{artist.name}</h3>
@@ -2094,7 +2214,10 @@ function ReleaseDetailPage() {
   };
 
   return (
-    <div className="content-stack release-view">
+    <div
+      className="content-stack release-view"
+      style={release.accent_color ? { '--release-accent': release.accent_color } : undefined}
+    >
       <div className="release-detail glass-panel">
         <ArtworkBackdrop src={releaseCoverUrl} className="release-artwork-backdrop" />
         <img src={releaseCoverUrl} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
@@ -2104,6 +2227,16 @@ function ReleaseDetailPage() {
           <Link to={`/artists/${release.artist_id}`} className="release-artist-link">
             {release.artist_name}
           </Link>
+          {(release.featured_artists || []).length > 0 && (
+            <p className="release-featured-artists">
+              feat. {release.featured_artists.map((artist, index) => (
+                <span key={artist.id}>
+                  {index > 0 ? ', ' : ''}
+                  <Link to={`/artists/${artist.id}`}>{artist.name}</Link>
+                </span>
+              ))}
+            </p>
+          )}
 
           <div className="stats-row">
             <div className="stat-pill">
@@ -3524,6 +3657,8 @@ function AdminPage() {
     title: '',
     artist_id: '',
     artist_name: '',
+    featured_artist_ids: [],
+    accent_color: '',
     cover_url: '',
     release_type: 'Album',
     release_date: '',
@@ -3811,6 +3946,8 @@ function AdminPage() {
       title: '',
       artist_id: '',
       artist_name: '',
+      featured_artist_ids: [],
+      accent_color: '',
       cover_url: '',
       release_type: 'Album',
       release_date: '',
@@ -3950,6 +4087,7 @@ function AdminPage() {
       image_url: artist.image_url || '',
       banner_url: artist.banner_url || '',
       genres: artist.genre_names || artist.genre || '',
+      accent_color: artist.accent_color || '',
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -3984,6 +4122,8 @@ function AdminPage() {
       title: detail.data.release.title || '',
       artist_id: detail.data.release.artist_id ? String(detail.data.release.artist_id) : '',
       artist_name: detail.data.release.artist_name || '',
+      featured_artist_ids: (detail.data.release.featured_artists || []).map((artist) => String(artist.id)),
+      accent_color: detail.data.release.accent_color || '',
       cover_url: detail.data.release.cover_url || '',
       release_type: detail.data.release.release_type || 'Album',
       release_date: detail.data.release.release_date || '',
@@ -4294,6 +4434,11 @@ function AdminPage() {
             />
           </div>
           <input placeholder="Gêneros, separados por vírgula" value={artistForm.genres} onChange={(e) => setArtistForm({ ...artistForm, genres: e.target.value })} />
+          <AccentPicker
+            label="Cor temática do artista"
+            value={artistForm.accent_color}
+            onChange={(color) => setArtistForm((prev) => ({ ...prev, accent_color: color }))}
+          />
           <button type="submit" className="primary-btn" disabled={artistImageUploads > 0}>{editingArtistId ? 'Salvar alterações' : 'Criar artista'}</button>
         </form>
 
@@ -4563,7 +4708,7 @@ function AdminPage() {
                   <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
                   <div className="admin-list-copy">
                     <strong>{release.title}</strong>
-                    <small>{release.artist_name} · {release.release_type}</small>
+                    <small>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')} · {release.release_type}</small>
                   </div>
                   <div className="admin-list-actions">
                     <button type="button" className="secondary-btn compact-btn" onClick={() => handleReleaseEdit(release)}>Editar</button>
