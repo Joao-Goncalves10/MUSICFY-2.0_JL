@@ -782,7 +782,7 @@ function FeaturedCarousel({ slides, user }) {
       <article
         className="home-featured-slide"
         key={activeSlide.id}
-        style={{ '--release-accent': activeSlide.accent_color || activeSlide.artist_accent_color || '#2563eb' }}
+        style={{ '--release-accent': activeSlide.accent_color || activeSlide.artist_accent_color || '#31b6c5' }}
       >
         <img
           className="home-featured-banner"
@@ -1033,7 +1033,7 @@ function HomePage() {
                   <Link
                     to={`/releases/${review.release_id}`}
                     className="home-review-release"
-                    style={{ '--release-accent': review.accent_color || review.artist_accent_color || '#2563eb' }}
+                    style={{ '--release-accent': review.accent_color || review.artist_accent_color || '#31b6c5' }}
                   >
                     <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
                     <span>
@@ -1113,7 +1113,7 @@ function HomePage() {
                   key={release.id}
                   to={`/releases/${release.id}`}
                   className="home-recent-release"
-                  style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#2563eb' }}
+                  style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
                 >
                   <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
                   <span>
@@ -2000,7 +2000,7 @@ function ArtistDetailPage() {
               key={release.id}
               to={`/releases/${release.id}`}
               className="artist-release-row"
-              style={{ '--release-accent': release.accent_color || artistData.artist.accent_color || '#2563eb' }}
+              style={{ '--release-accent': release.accent_color || artistData.artist.accent_color || '#31b6c5' }}
             >
               <span className="artist-release-rank">{index + 1}</span>
               <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
@@ -2035,7 +2035,7 @@ function ReleaseCard({ release, showListen = false }) {
     <Link
       to={`/releases/${release.id}`}
       className="release-card glass-panel"
-      style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#2563eb' }}
+      style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
     >
       <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
       <div className="release-meta">
@@ -2294,7 +2294,7 @@ function ReleaseDetailPage() {
   return (
     <div
       className="content-stack release-view"
-      style={{ '--release-accent': releaseAccent || '#2563eb' }}
+      style={{ '--release-accent': releaseAccent || '#31b6c5' }}
     >
       <div className="release-detail glass-panel">
         <ArtworkBackdrop src={releaseCoverUrl} className="release-artwork-backdrop" />
