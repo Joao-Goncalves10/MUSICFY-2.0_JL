@@ -11,6 +11,26 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
 });
 
+const PlayerContext = createContext(null);
+
+const getYoutubeVideoId = (value) => {
+  try {
+    const url = new URL(value.startsWith('http') ? value : `https://${value}`);
+    const host = url.hostname.replace(/^www\./, '').toLowerCase();
+    let videoId = '';
+
+    if (host === 'youtu.be') {
+      videoId = url.pathname.split('/').filter(Boolean)[0] || '';
+    } else if (['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com'].includes(host)) {
+      videoId = url.searchParams.get('v') || url.pathname.match(/^\/(?:embed|shorts|live)\/([^/?]+)/)?.[1] || '';
+    }
+
+    return /^[\w-]{11}$/.test(videoId) ? videoId : '';
+  } catch {
+    return '';
+  }
+};
+
 const MUSIC_GENRES = ['Pop', 'K-pop', 'R&B', 'Hip-Hop', 'Rap', 'Rock', 'Indie', 'Alternative', 'Electronic', 'Funk', 'MPB', 'Jazz', 'Classical', 'Country'];
 
 const normalizeGenre = (genre) => String(genre || '')
@@ -48,6 +68,81 @@ const getReleaseFallbackImage = (release) => (
   String(release?.title || '').trim().toLocaleLowerCase() === 'wor$t girl in america'
     ? slayyyterAlbumCover
     : imagePlaceholder
+);
+
+const accentPalette = [
+  // Vermelhos & Rosas
+  ['Salmão', '#fda4af'], ['Coral', '#fb7185'], ['Rosa claro', '#f472b6'],
+  ['Rosa choque', '#ec4899'], ['Chiclete', '#db2777'], ['Framboesa', '#be123c'],
+  ['Vermelho vivo', '#ef4444'], ['Rubi', '#dc2626'], ['Carmesim', '#b91c1c'],
+  ['Vinho', '#991b1b'], ['Borgonha', '#881337'], ['Sangria', '#7f1d1d'],
+
+  // Laranjas & Pêssegos
+  ['Damasco', '#fed7aa'], ['Pêssego', '#fdba74'], ['Laranja claro', '#fb923c'],
+  ['Laranja', '#f97316'], ['Tangerina', '#ea580c'], ['Terracota', '#c2410c'],
+  ['Ferrugem', '#9a3412'],
+
+  // Amarelos & Dourados
+  ['Creme', '#fef08a'], ['Canário', '#fde047'], ['Amarelo sol', '#facc15'],
+  ['Amarelo ouro', '#eab308'], ['Âmbar', '#f59e0b'], ['Mel', '#d97706'],
+  ['Mostarda', '#ca8a04'], ['Ocre', '#a16207'],
+
+  // Verdes
+  ['Lima néon', '#a3e635'], ['Verde lima', '#84cc16'], ['Oliva claro', '#65a30d'],
+  ['Musgo', '#4d7c0f'], ['Oliva escuro', '#3f6212'], ['Menta', '#6ee7b7'],
+  ['Verde menta', '#34d399'], ['Verde esmeralda', '#10b981'], ['Verde jade', '#059669'],
+  ['Verde trevo', '#16a34a'], ['Floresta', '#166534'], ['Verde pinho', '#14532d'],
+
+  // Cianos & Turquesas
+  ['Água-marinha', '#5eead4'], ['Verde água', '#2dd4bf'], ['Turquesa', '#14b8a6'],
+  ['Teal', '#0d9488'], ['Aqua', '#22d3ee'], ['Ciano', '#06b6d4'],
+  ['Ciano profundo', '#0891b2'], ['Marinho escuro', '#164e63'],
+
+  // Azuis
+  ['Azul glacial', '#7dd3fc'], ['Azul celeste', '#38bdf8'], ['Azul oceano', '#0ea5e9'],
+  ['Azul cerúleo', '#0284c7'], ['Azul céu', '#60a5fa'], ['Azul elétrico', '#2563eb'],
+  ['Azul royal', '#1d4ed8'], ['Cobalto', '#1e40af'], ['Safira', '#1e3b8a'],
+  ['Azul noite', '#1e3a8a'], ['Meia-noite', '#172554'],
+
+  // Índigos, Violetas & Roxos
+  ['Pervinca', '#a5b4fc'], ['Índigo claro', '#818cf8'], ['Índigo', '#6366f1'],
+  ['Índigo profundo', '#4f46e5'], ['Lavanda', '#c4b5fd'], ['Violeta claro', '#a78bfa'],
+  ['Violeta', '#8b5cf6'], ['Ametista', '#7c3aed'], ['Lilás', '#c084fc'],
+  ['Roxo', '#a855f7'], ['Púrpura', '#9333ea'], ['Uva', '#7e22ce'],
+  ['Berinjela', '#581c87'], ['Ameixa', '#4c1d95'], ['Orquídea', '#e879f9'],
+  ['Magenta', '#d946ef'], ['Fúcsia', '#c026d3'], ['Fúcsia profundo', '#a21caf'],
+
+  // Terrosos & Neutros
+  ['Areia', '#e7e5e4'], ['Linho', '#d6d3d1'], ['Caramelo', '#b45309'],
+  ['Bronze', '#92400e'], ['Chocolate', '#78350f'], ['Café', '#451a03'],
+  ['Pérola', '#e2e8f0'], ['Prata', '#94a3b8'], ['Grafite', '#64748b'],
+  ['Cinza ardósia', '#475569'], ['Chumbo', '#334155'], ['Obsidiana', '#1e293b'],
+  ['Carvão', '#0f172a'],
+];
+
+const AccentPicker = ({ label, value, onChange }) => (
+  <fieldset className="accent-picker">
+    <legend>{label}</legend>
+    <div className="accent-picker-options">
+      {accentPalette.map(([name, color]) => (
+        <button
+          key={color}
+          type="button"
+          className={`accent-swatch${value === color ? ' is-selected' : ''}`}
+          style={{ '--accent-swatch': color }}
+          aria-label={name}
+          title={name}
+          aria-pressed={value === color}
+          onClick={() => onChange(color)}
+        />
+      ))}
+      {value && (
+        <button type="button" className="accent-clear" onClick={() => onChange('')} title="Remover cor">
+          Sem cor
+        </button>
+      )}
+    </div>
+  </fieldset>
 );
 
 const formatFeedDate = (value) => {
@@ -175,6 +270,7 @@ const uploadImage = async (file) => {
 };
 
 const AuthContext = createContext();
+const ShellAccentContext = createContext(() => {});
 
 function useAuth() {
   return useContext(AuthContext);
@@ -256,6 +352,7 @@ function ProtectedRoute({ admin = false, children }) {
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('musicfy-theme') === 'light' ? 'light' : 'dark');
+  const [playerTrack, setPlayerTrack] = useState(null);
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -264,49 +361,58 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <AppContent
-        theme={theme}
-        onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-      />
+      <PlayerContext.Provider value={setPlayerTrack}>
+        <AppContent
+          theme={theme}
+          onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+        />
+        {playerTrack && <YoutubeMiniPlayer track={playerTrack} onClose={() => setPlayerTrack(null)} />}
+      </PlayerContext.Provider>
     </AuthProvider>
   );
 }
 
 function AppContent({ theme, onToggleTheme }) {
   const { user } = useAuth();
+  const [shellAccent, setShellAccent] = useState('');
 
   return (
-    <div className="app-shell">
-      <Navbar theme={theme} onToggleTheme={onToggleTheme} />
-      <div className={`app-layout${user?.is_suspended ? ' is-account-suspended' : ''}`}>
-        <Sidebar />
-        <main className="page-shell">
-          {user && !user.is_suspended && !isAccountApproved(user) && (
-            <div className="account-approval-notice" role="status">
-              <strong>Conta em análise</strong>
-              <span>
-                Você pode navegar e ler o conteúdo. As interações serão liberadas após a aprovação da equipe administrativa; atualize a página depois de receber a confirmação.
-              </span>
-            </div>
-          )}
-          <AccountAccessGate>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/explore" element={<ExplorePage />} />
-              <Route path="/artists" element={<ArtistsPage />} />
-              <Route path="/social" element={<ProtectedRoute><SocialPage /></ProtectedRoute>} />
-              <Route path="/community" element={<Navigate to="/social" replace />} />
-              <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
-              <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
-              <Route path="/playlists/:playlistId" element={<PlaylistPage />} />
-              <Route path="/profile/:userId" element={<ProfilePage />} />
-              <Route path="/auth" element={<AuthPage />} />
-              <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
-            </Routes>
-          </AccountAccessGate>
-        </main>
+    <ShellAccentContext.Provider value={setShellAccent}>
+      <div
+        className={`app-shell${shellAccent ? ' has-shell-accent' : ''}`}
+        style={shellAccent ? { '--shell-accent': shellAccent } : undefined}
+      >
+        <Navbar theme={theme} onToggleTheme={onToggleTheme} />
+        <div className={`app-layout${user?.is_suspended ? ' is-account-suspended' : ''}`}>
+          <Sidebar />
+          <main className="page-shell">
+            {user && !user.is_suspended && !isAccountApproved(user) && (
+              <div className="account-approval-notice" role="status">
+                <strong>Conta em análise</strong>
+                <span>
+                  Você pode navegar e ler o conteúdo. As interações serão liberadas após a aprovação da equipe administrativa; atualize a página depois de receber a confirmação.
+                </span>
+              </div>
+            )}
+            <AccountAccessGate>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/explore" element={<ExplorePage />} />
+                <Route path="/artists" element={<ArtistsPage />} />
+                <Route path="/social" element={<ProtectedRoute><SocialPage /></ProtectedRoute>} />
+                <Route path="/community" element={<Navigate to="/social" replace />} />
+                <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
+                <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
+                <Route path="/playlists/:playlistId" element={<PlaylistPage />} />
+                <Route path="/profile/:userId" element={<ProfilePage />} />
+                <Route path="/auth" element={<AuthPage />} />
+                <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
+              </Routes>
+            </AccountAccessGate>
+          </main>
+        </div>
       </div>
-    </div>
+    </ShellAccentContext.Provider>
   );
 }
 
@@ -321,6 +427,30 @@ function AccountAccessGate({ children }) {
       <h1>Seu perfil está oculto</h1>
       <p>Abra as notificações no topo da página para ver o aviso da equipe. Enquanto isso, o restante da conta ficará indisponível.</p>
     </section>
+  );
+}
+
+function YoutubeMiniPlayer({ track, onClose }) {
+  return (
+    <aside className="youtube-mini-player" aria-label="Miniplayer do YouTube">
+      <div className="youtube-mini-player-header">
+        <div className="youtube-mini-player-info">
+          <strong>{track.title}</strong>
+          <span>{track.artistName} · {track.releaseTitle}</span>
+        </div>
+        <button type="button" className="youtube-mini-player-close" onClick={onClose} aria-label="Fechar miniplayer">
+          ×
+        </button>
+      </div>
+      <iframe
+        key={track.videoId}
+        src={`https://www.youtube-nocookie.com/embed/${track.videoId}?autoplay=1&playsinline=1`}
+        title={`Vídeo de ${track.title}`}
+        allow="autoplay; encrypted-media; picture-in-picture; web-share"
+        referrerPolicy="strict-origin-when-cross-origin"
+        allowFullScreen
+      />
+    </aside>
   );
 }
 
@@ -697,7 +827,11 @@ function FeaturedCarousel({ slides, user }) {
         }
       }}
     >
-      <article className="home-featured-slide" key={activeSlide.id}>
+      <article
+        className="home-featured-slide"
+        key={activeSlide.id}
+        style={{ '--release-accent': activeSlide.accent_color || activeSlide.artist_accent_color || '#31b6c5' }}
+      >
         <img
           className="home-featured-banner"
           src={activeSlide.banner_url || activeSlide.cover_url || getReleaseFallbackImage(activeSlide)}
@@ -706,7 +840,9 @@ function FeaturedCarousel({ slides, user }) {
         />
         <div className="home-featured-shade" />
         <div className="home-featured-copy">
-          <p className="eyebrow">Em destaque · {activeSlide.artist_name}</p>
+          <p className="eyebrow">
+            Em destaque · {[activeSlide.artist_name, ...(activeSlide.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')}
+          </p>
           <h2>{activeSlide.title}</h2>
           <p>{activeSlide.description}</p>
           <Link
@@ -769,6 +905,9 @@ function FeaturedCarousel({ slides, user }) {
 function HomePage() {
   const { user } = useAuth();
   const [reviews, setReviews] = useState([]);
+  const [followingReviews, setFollowingReviews] = useState([]);
+  const [generalReviews, setGeneralReviews] = useState([]);
+  const [feedMode, setFeedMode] = useState('following');
   const [featuredSlides, setFeaturedSlides] = useState([]);
   const [recentReleases, setRecentReleases] = useState([]);
   const [feedQuery, setFeedQuery] = useState('');
@@ -786,6 +925,8 @@ function HomePage() {
       .then((response) => {
         if (!active) return;
         setReviews(response.data.reviews || []);
+        setFollowingReviews(response.data.following_reviews || []);
+        setGeneralReviews(response.data.general_reviews || []);
         setFeaturedSlides(response.data.featured_slides || []);
         setRecentReleases(response.data.recent_releases || []);
       })
@@ -810,20 +951,34 @@ function HomePage() {
         ? { ...review, liked_by_user: liked, like_count: likeCount }
         : review
     )));
+    setFollowingReviews((current) => current.map((review) => (
+      review.id === reviewId ? { ...review, liked_by_user: liked, like_count: likeCount } : review
+    )));
+    setGeneralReviews((current) => current.map((review) => (
+      review.id === reviewId ? { ...review, liked_by_user: liked, like_count: likeCount } : review
+    )));
   };
 
   const handleReviewUpdated = (updatedReview) => {
-    setReviews((current) => current.map((review) => (
+    const updateList = (current) => current.map((review) => (
       String(review.id) === String(updatedReview.id) ? updatedReview : review
-    )));
+    ));
+    setReviews(updateList);
+    setFollowingReviews(updateList);
+    setGeneralReviews(updateList);
   };
 
   const handleReviewDeleted = (reviewId) => {
     setReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
+    setFollowingReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
+    setGeneralReviews((current) => current.filter((review) => String(review.id) !== String(reviewId)));
   };
 
   const normalizedFeedQuery = normalizeGenre(feedQuery);
-  const visibleReviews = reviews
+  const selectedFeedReviews = user
+    ? (feedMode === 'following' ? followingReviews : generalReviews)
+    : generalReviews;
+  const visibleReviews = selectedFeedReviews
     .filter((review) => (
       (!normalizedFeedQuery || normalizeGenre(`${review.full_name} ${review.username} ${review.release_title} ${review.artist_name} ${review.review_text}`).includes(normalizedFeedQuery))
       && (feedRatingFilter === 'all' || Number(review.rating || 0) >= Number(feedRatingFilter))
@@ -861,8 +1016,8 @@ function HomePage() {
         <section className="home-social-feed" aria-labelledby="home-feed-title">
           <div className="home-feed-section-heading">
             <div>
-              <p className="eyebrow">Seu círculo musical</p>
-              <h2 id="home-feed-title">Resenhas recentes</h2>
+              <p className="eyebrow">Comunidade musical</p>
+              <h2 id="home-feed-title">Resenhas</h2>
             </div>
             {!isLoading && <span>{visibleReviews.length} de {reviews.length} resenhas</span>}
           </div>
@@ -882,59 +1037,107 @@ function HomePage() {
             </select>
           </div>
 
+          {user && (
+            <div className="home-feed-tabs" role="tablist" aria-label="Tipo de feed">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={feedMode === 'following'}
+                className={feedMode === 'following' ? 'is-active' : ''}
+                onClick={() => setFeedMode('following')}
+              >
+                Seguindo
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={feedMode === 'general'}
+                className={feedMode === 'general' ? 'is-active' : ''}
+                onClick={() => setFeedMode('general')}
+              >
+                Para você
+              </button>
+            </div>
+          )}
+
           {error && <p className="error-text" role="alert">{error}</p>}
           {isLoading ? (
             <div className="home-feed-loading glass-panel" aria-live="polite">Carregando seu feed…</div>
           ) : visibleReviews.length ? (
             <div className="home-review-list">
-              {visibleReviews.map((review) => (
-                <article key={review.id} className="home-review-card glass-panel">
-                  <header className="home-review-author-row">
-                    <Link to={`/profile/${review.user_id}`} className="home-review-author">
-                      <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                      <span>
-                        <strong>{review.full_name || review.username}</strong>
-                        <small>@{review.username} · {formatFeedDate(review.created_at)}</small>
-                      </span>
-                    </Link>
-                    <RatingBadge value={review.rating} />
-                  </header>
+              {visibleReviews.map((review) => {
+  const accentColor =
+    review.accent_color ||
+    review.artist_accent_color ||
+    getArtistAccentColor({
+      name: review.artist_name,
+      primary_genre: review.release_genre,
+    });
 
-                  <Link to={`/releases/${review.release_id}`} className="home-review-release">
-                    <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                    <span>
-                      <small>RESENHA DE</small>
-                      <strong>{review.release_title}</strong>
-                      <span>{review.artist_name}</span>
-                    </span>
-                    <span className="home-review-release-arrow" aria-hidden="true">↗</span>
-                  </Link>
+  return (
+    <article
+      key={review.id}
+      className="home-review-card glass-panel"
+      style={{ "--review-accent": accentColor, "--release-accent": accentColor }}
+    >
+      <header className="home-review-author-row">
+        <Link to={`/profile/${review.user_id}`} className="home-review-author">
+          <img
+            src={review.avatar_url || imagePlaceholder}
+            onError={(event) => handleImageError(event, imagePlaceholder)}
+            alt=""
+          />
+          <span>
+            <strong>{review.full_name || review.username}</strong>
+            <small>@{review.username} · {formatFeedDate(review.created_at)}</small>
+          </span>
+        </Link>
+        <RatingBadge value={review.rating} />
+      </header>
 
-                  {review.review_text ? (
-                    <p className="home-review-text">{review.review_text}</p>
-                  ) : reviews.length ? (
-                    <p className="explore-empty-state">Nenhuma resenha corresponde aos filtros selecionados.</p>
-                  ) : (
-                    <p className="home-review-text is-empty">Compartilhou uma nota para este lançamento.</p>
-                  )}
-                  {review.gif_url && <ReviewGif src={review.gif_url} />}
+      <Link
+        to={`/releases/${review.release_id}`}
+        className="home-review-release"
+      >
+        <img
+          src={review.release_cover || imagePlaceholder}
+          onError={(event) => handleImageError(event, imagePlaceholder)}
+          alt=""
+        />
+        <span>
+          <small>RESENHA DE</small>
+          <strong>{review.release_title}</strong>
+          <span>{review.artist_name}</span>
+        </span>
+        <span className="home-review-release-arrow" aria-hidden="true">↗</span>
+      </Link>
 
-                  <footer className="home-review-actions">
-                    <ReviewLikeButton
-                      review={review}
-                      user={user}
-                      onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
-                    />
-                    <ReviewOwnerActions
-                      review={review}
-                      user={user}
-                      onUpdated={handleReviewUpdated}
-                      onDeleted={handleReviewDeleted}
-                    />
-                    <Link to={`/releases/${review.release_id}`} className="home-review-open-link">Abrir lançamento</Link>
-                  </footer>
-                </article>
-              ))}
+      {review.review_text ? (
+        <p className="home-review-text">{review.review_text}</p>
+      ) : (
+        <p className="home-review-text is-empty">Compartilhou uma nota para este lançamento.</p>
+      )}
+      {review.gif_url && <ReviewGif src={review.gif_url} />}
+
+      <footer className="home-review-actions">
+        <ReviewLikeButton
+          review={review}
+          user={user}
+          onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
+        />
+        <ReviewOwnerActions
+          review={review}
+          user={user}
+          onUpdated={handleReviewUpdated}
+          onDeleted={handleReviewDeleted}
+        />
+        <Link to={`/releases/${review.release_id}`} className="home-review-open-link">
+          Abrir lançamento
+        </Link>
+      </footer>
+    </article>
+  );
+})}
             </div>
           ) : (
             <div className="home-feed-empty glass-panel">
@@ -977,12 +1180,17 @@ function HomePage() {
           {visibleRecentReleases.length ? (
             <div className="home-recent-list">
               {visibleRecentReleases.map((release) => (
-                <Link key={release.id} to={`/releases/${release.id}`} className="home-recent-release">
+                <Link
+                  key={release.id}
+                  to={`/releases/${release.id}`}
+                  className="home-recent-release"
+                  style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
+                >
                   <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
                   <span>
                     <small>{release.release_type} · {formatFeedDate(release.release_date)}</small>
                     <strong>{release.title}</strong>
-                    <span>{release.artist_name}</span>
+                    <span>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')}</span>
                   </span>
                   <span className="home-recent-arrow" aria-hidden="true">↗</span>
                 </Link>
@@ -1208,23 +1416,49 @@ function ExplorePage() {
 
 function ArtistsPage() {
   const [artists, setArtists] = useState([]);
+  const [query, setQuery] = useState('');
+  const [sortMode, setSortMode] = useState('popular');
 
   useEffect(() => {
     api.get('/artists').then((res) => setArtists(res.data)).catch(console.error);
   }, []);
 
+  const filtered = artists
+    .filter((artist) => `${artist.name || ''} ${artist.genre_names || artist.genre || ''}`.toLowerCase().includes(query.toLowerCase()))
+    .sort((a, b) => sortMode === 'name'
+      ? (a.name || '').localeCompare(b.name || '')
+      : Number(b.release_count || 0) - Number(a.release_count || 0));
+
   return (
-    <div className="content-stack">
-      <div className="section-header">
-        <h2>Artistas</h2>
-        <span className="explore-filter-label">{artists.length} artistas</span>
+    <div className="content-stack artists-page">
+      <header className="artists-page-header">
+        <div>
+          <p className="eyebrow">Explore o catálogo</p>
+          <h1>Artistas</h1>
+          <p>Encontre novos sons, explore discografias e siga seus artistas favoritos.</p>
+        </div>
+        <span className="artists-page-count">{artists.length} artistas</span>
+      </header>
+      <div className="artists-toolbar">
+        <input className="search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar artistas ou gêneros" />
+        <select aria-label="Ordenar artistas" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
+          <option value="popular">Mais lançamentos</option>
+          <option value="name">Nome A-Z</option>
+        </select>
       </div>
-      <div className="artist-grid">
-        {artists.map((artist) => (
-          <ArtistCard key={artist.id} artist={artist} />
-        ))}
-      </div>
-      {!artists.length && <p className="explore-empty-state">Nenhum artista cadastrado ainda.</p>}
+      {filtered.length ? (
+        <div className="artist-grid">
+          {filtered.map((artist) => (
+            <ArtistCard key={artist.id} artist={artist} />
+          ))}
+        </div>
+      ) : (
+        <div className="profile-empty-state glass-panel">
+          <span aria-hidden="true">⌕</span>
+          <h3>Nenhum artista encontrado</h3>
+          <p>Tente outro nome ou gênero.</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1765,6 +1999,7 @@ function SocialPage() {
 function ArtistDetailPage() {
   const { artistId } = useParams();
   const { user } = useAuth();
+  const setShellAccent = useContext(ShellAccentContext);
   const [artistData, setArtistData] = useState(null);
   const artistBannerUrl = artistData?.artist?.banner_url || artistData?.artist?.image_url || '';
 
@@ -1772,10 +2007,19 @@ function ArtistDetailPage() {
     api.get(`/artists/${artistId}`).then((res) => setArtistData(res.data)).catch(console.error);
   }, [artistId]);
 
+  useEffect(() => {
+    setShellAccent(artistData?.artist?.accent_color || '');
+    return () => setShellAccent('');
+  }, [artistData?.artist?.accent_color, setShellAccent]);
+
   if (!artistData) return <div className="loading-panel">Carregando artista…</div>;
 
+  const accentStyle = artistData.artist.accent_color
+    ? { '--artist-accent': artistData.artist.accent_color }
+    : undefined;
+
   return (
-    <div className="content-stack">
+    <div className="content-stack artist-detail-page" style={accentStyle}>
       <div className="artist-hero glass-panel">
         <ArtworkBackdrop src={artistBannerUrl || getArtistFallbackImage(artistData.artist)} className="artist-hero-artwork-glow" />
         <img
@@ -1823,7 +2067,12 @@ function ArtistDetailPage() {
         </div>
         <div className="artist-release-list">
           {artistData.releases.length ? artistData.releases.map((release, index) => (
-            <Link key={release.id} to={`/releases/${release.id}`} className="artist-release-row">
+            <Link
+              key={release.id}
+              to={`/releases/${release.id}`}
+              className="artist-release-row"
+              style={{ '--release-accent': release.accent_color || artistData.artist.accent_color || '#31b6c5' }}
+            >
               <span className="artist-release-rank">{index + 1}</span>
               <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
               <span className="artist-release-copy">
@@ -1848,13 +2097,22 @@ function ArtistDetailPage() {
 }
 
 function ReleaseCard({ release, showListen = false }) {
+  const releaseArtistNames = [
+    release.artist_name,
+    ...(release.featured_artists || []).map((artist) => artist.name),
+  ].filter((name, index, names) => name && names.indexOf(name) === index);
+
   return (
-    <Link to={`/releases/${release.id}`} className="release-card glass-panel">
+    <Link
+      to={`/releases/${release.id}`}
+      className="release-card glass-panel"
+      style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
+    >
       <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
       <div className="release-meta">
         <span>{release.release_type}</span>
         <h3>{release.title}</h3>
-        <p>{release.artist_name || 'Artista'}</p>
+        <p>{releaseArtistNames.join(' feat. ') || 'Artista'}</p>
         <small>{release.release_date}</small>
         {showListen && <span className="listen-album-btn"><span aria-hidden="true">▶</span> Ouvir álbum</span>}
       </div>
@@ -1866,7 +2124,11 @@ function ArtistCard({ artist }) {
   const releaseCount = Number(artist.release_count || 0);
 
   return (
-    <Link to={`/artists/${artist.id}`} className="artist-card">
+    <Link
+      to={`/artists/${artist.id}`}
+      className="artist-card"
+      style={artist.accent_color ? { '--artist-accent': artist.accent_color } : undefined}
+    >
       <img src={artist.image_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt={artist.name} />
       <div>
         <h3>{artist.name}</h3>
@@ -1880,6 +2142,8 @@ function ArtistCard({ artist }) {
 function ReleaseDetailPage() {
   const { releaseId } = useParams();
   const { user } = useAuth();
+  const setPlayerTrack = useContext(PlayerContext);
+  const setShellAccent = useContext(ShellAccentContext);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [releaseInfo, setReleaseInfo] = useState(null);
@@ -1902,6 +2166,12 @@ function ReleaseDetailPage() {
   const releaseCoverUrl = releaseInfo?.release
     ? releaseInfo.release.cover_url || getReleaseFallbackImage(releaseInfo.release)
     : '';
+  const releaseAccent = releaseInfo?.release?.accent_color || releaseInfo?.release?.artist_accent_color || '';
+
+  useEffect(() => {
+    setShellAccent(releaseAccent);
+    return () => setShellAccent('');
+  }, [releaseAccent, setShellAccent]);
 
   const load = async () => {
     const releaseRes = await api.get(`/releases/${releaseId}`);
@@ -2068,6 +2338,16 @@ function ReleaseDetailPage() {
   const { release, tracks, reviews } = releaseInfo;
   const canWrite = isAccountApproved(user);
   const selectedLyricsTrack = tracks.find((track) => track.id === openLyricsTrackId);
+  const playTrack = (track) => {
+    const videoId = getYoutubeVideoId(track.youtube_url || '');
+    if (!videoId) return;
+    setPlayerTrack({
+      videoId,
+      title: track.title,
+      artistName: release.artist_name || 'Artista',
+      releaseTitle: release.title,
+    });
+  };
   const isFutureRelease = new Date(release.release_date) > new Date();
   const formattedReleaseDate = release.release_date ? new Date(release.release_date + 'T00:00:00').toLocaleDateString('pt-BR', {
     day: '2-digit',
@@ -2094,7 +2374,10 @@ function ReleaseDetailPage() {
   };
 
   return (
-    <div className="content-stack release-view">
+    <div
+      className="content-stack release-view"
+      style={{ '--release-accent': releaseAccent || '#31b6c5' }}
+    >
       <div className="release-detail glass-panel">
         <ArtworkBackdrop src={releaseCoverUrl} className="release-artwork-backdrop" />
         <img src={releaseCoverUrl} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
@@ -2104,6 +2387,16 @@ function ReleaseDetailPage() {
           <Link to={`/artists/${release.artist_id}`} className="release-artist-link">
             {release.artist_name}
           </Link>
+          {(release.featured_artists || []).length > 0 && (
+            <p className="release-featured-artists">
+              feat. {release.featured_artists.map((artist, index) => (
+                <span key={artist.id}>
+                  {index > 0 ? ', ' : ''}
+                  <Link to={`/artists/${artist.id}`}>{artist.name}</Link>
+                </span>
+              ))}
+            </p>
+          )}
 
           <div className="stats-row">
             <div className="stat-pill">
@@ -2200,9 +2493,15 @@ function ReleaseDetailPage() {
                   </div>
                   <div className="track-actions">
                     {track.youtube_url && (
-                      <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">
-                        Ouvir
-                      </a>
+                      getYoutubeVideoId(track.youtube_url) ? (
+                        <button type="button" onClick={() => playTrack(track)} className="track-link-btn">
+                          Ouvir
+                        </button>
+                      ) : (
+                        <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">
+                          Ouvir
+                        </a>
+                      )
                     )}
                     {(track.lyrics || track.translation) && (
                       <button
@@ -2278,9 +2577,15 @@ function ReleaseDetailPage() {
                 <span>{release.title}</span>
               </div>
               {selectedLyricsTrack.youtube_url && (
-                <a className="lyrics-viewer-listen" href={selectedLyricsTrack.youtube_url} target="_blank" rel="noreferrer">
-                  Ouvir faixa <span aria-hidden="true">↗</span>
-                </a>
+                getYoutubeVideoId(selectedLyricsTrack.youtube_url) ? (
+                  <button type="button" className="lyrics-viewer-listen" onClick={() => playTrack(selectedLyricsTrack)}>
+                    Ouvir faixa <span aria-hidden="true">↗</span>
+                  </button>
+                ) : (
+                  <a className="lyrics-viewer-listen" href={selectedLyricsTrack.youtube_url} target="_blank" rel="noreferrer">
+                    Ouvir faixa <span aria-hidden="true">↗</span>
+                  </a>
+                )
               )}
             </aside>
 
@@ -3289,10 +3594,26 @@ function AuthPage() {
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ username: '', full_name: '', email: '', password: '', confirmPassword: '' });
   const [error, setError] = useState('');
+  const [registrationApprovalRequired, setRegistrationApprovalRequired] = useState(null);
+  const [registrationSettingsError, setRegistrationSettingsError] = useState('');
 
   useEffect(() => {
     if (user) navigate('/');
   }, [user, navigate]);
+
+  useEffect(() => {
+    let active = true;
+    api.get('/auth/registration-settings')
+      .then(({ data }) => {
+        if (active) setRegistrationApprovalRequired(Boolean(data.approval_required));
+      })
+      .catch((settingsError) => {
+        console.error('Unable to load registration settings:', settingsError);
+        if (active) setRegistrationSettingsError('Não foi possível carregar as configurações de aprovação.');
+      });
+
+    return () => { active = false; };
+  }, []);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -3372,6 +3693,16 @@ function AuthPage() {
           )}
 
           {error && <p className="error-text" role="alert">{error}</p>}
+          {mode === 'register' && registrationApprovalRequired !== null && (
+            <p className="auth-registration-note" role="status">
+              {registrationApprovalRequired
+                ? 'Após o cadastro, seu perfil aguardará aprovação do ADM antes de liberar interações.'
+                : 'A aprovação manual está desativada. Você poderá interagir assim que criar sua conta.'}
+            </p>
+          )}
+          {mode === 'register' && registrationSettingsError && (
+            <p className="auth-registration-note" role="status">{registrationSettingsError}</p>
+          )}
           <button className="primary-btn auth-submit" type="submit">
             {mode === 'login' ? 'Entrar no Musicfy' : 'Criar minha conta'}
             <span aria-hidden="true">→</span>
@@ -3477,6 +3808,9 @@ function AdminPage() {
   const [releaseListType, setReleaseListType] = useState('Todos');
   const [featuredListQuery, setFeaturedListQuery] = useState('');
   const [isLoadingModeration, setIsLoadingModeration] = useState(false);
+  const [profileApprovalEnabled, setProfileApprovalEnabled] = useState(null);
+  const [isLoadingProfileApproval, setIsLoadingProfileApproval] = useState(true);
+  const [isSavingProfileApproval, setIsSavingProfileApproval] = useState(false);
   const [artistImageUploads, setArtistImageUploads] = useState(0);
   const [isReleaseCoverUploading, setIsReleaseCoverUploading] = useState(false);
   const [editingArtistId, setEditingArtistId] = useState(null);
@@ -3491,10 +3825,19 @@ function AdminPage() {
   const [isSearchingMusicBrainzReleases, setIsSearchingMusicBrainzReleases] = useState(false);
   const [loadingMusicBrainzReleaseId, setLoadingMusicBrainzReleaseId] = useState('');
   const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+  const [musicBrainzArtistResults, setMusicBrainzArtistResults] = useState([]);
+  const [musicBrainzReleaseResults, setMusicBrainzReleaseResults] = useState([]);
+  const [musicBrainzReleaseQuery, setMusicBrainzReleaseQuery] = useState('');
+  const [isSearchingMusicBrainzArtists, setIsSearchingMusicBrainzArtists] = useState(false);
+  const [isSearchingMusicBrainzReleases, setIsSearchingMusicBrainzReleases] = useState(false);
+  const [loadingMusicBrainzReleaseId, setLoadingMusicBrainzReleaseId] = useState('');
+  const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '', accent_color: '' });
   const [releaseForm, setReleaseForm] = useState({
     title: '',
     artist_id: '',
     artist_name: '',
+    featured_artist_ids: [],
+    accent_color: '',
     cover_url: '',
     release_type: 'Album',
     release_date: '',
@@ -3536,6 +3879,10 @@ function AdminPage() {
     api.get('/dashboard')
       .then((res) => setStats(res.data))
       .catch((error) => reportAdminError(error, 'Não foi possível carregar o painel administrativo.'));
+    api.get('/admin/settings/profile-approval')
+      .then(({ data }) => setProfileApprovalEnabled(Boolean(data.enabled)))
+      .catch((error) => reportAdminError(error, 'Não foi possível carregar a configuração de aprovação de perfis.'))
+      .finally(() => setIsLoadingProfileApproval(false));
     refreshCatalogLists();
   }, [user]);
 
@@ -3570,6 +3917,107 @@ function AdminPage() {
   const resetArtistForm = () => {
     setEditingArtistId(null);
     setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+    setMusicBrainzArtistResults([]);
+  };
+
+  const searchMusicBrainzArtists = async () => {
+    const query = artistForm.name.trim();
+    if (!query) {
+      setAdminError('Informe o nome do artista para buscar no MusicBrainz.');
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setMusicBrainzArtistResults([]);
+    setIsSearchingMusicBrainzArtists(true);
+    try {
+      const response = await api.get('/admin/musicbrainz/artists', { params: { q: query } });
+      setMusicBrainzArtistResults(response.data || []);
+      if (!response.data?.length) setAdminNotice('Nenhum artista encontrado no MusicBrainz.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível consultar o MusicBrainz agora.');
+    } finally {
+      setIsSearchingMusicBrainzArtists(false);
+    }
+  };
+
+  const searchMusicBrainzReleases = async () => {
+    const query = musicBrainzReleaseQuery.trim();
+    if (!releaseForm.artist_name) {
+      setAdminError('Selecione um artista cadastrado antes de buscar lançamentos.');
+      return;
+    }
+    if (!query) {
+      setAdminError('Informe o título do lançamento para buscar no MusicBrainz.');
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setMusicBrainzReleaseResults([]);
+    setIsSearchingMusicBrainzReleases(true);
+    try {
+      const response = await api.get('/admin/musicbrainz/releases', {
+        params: { q: query, artist: releaseForm.artist_name },
+      });
+      setMusicBrainzReleaseResults(response.data || []);
+      if (!response.data?.length) setAdminNotice('Nenhum lançamento encontrado no MusicBrainz para esse artista e título.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível consultar o MusicBrainz agora.');
+    } finally {
+      setIsSearchingMusicBrainzReleases(false);
+    }
+  };
+
+  const importMusicBrainzRelease = async (release) => {
+    const hasTrackDetails = releaseForm.tracks.some((track) => (
+      track.title || track.youtube_url || track.lyrics || track.translation
+    ));
+    if (hasTrackDetails && !window.confirm('Importar esta lista substituirá as faixas preenchidas no formulário. Deseja continuar?')) {
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setLoadingMusicBrainzReleaseId(release.id);
+    try {
+      const response = await api.get(`/admin/musicbrainz/releases/${release.id}`);
+      const importedTracks = (response.data.tracks || []).map((track) => ({
+        title: track.title || '',
+        duration: track.duration || '',
+        explicit: false,
+        youtube_url: '',
+        lyrics: '',
+        translation: '',
+      }));
+      const primaryType = release.type === 'EP' || release.type === 'Single' ? release.type : 'Album';
+      setReleaseForm((current) => ({
+        ...current,
+        title: release.title,
+        release_type: primaryType,
+        release_date: response.data.release_date || '',
+        cover_url: response.data.cover_url || current.cover_url,
+        genre: [...new Map(
+          [...splitGenreNames(current.genre), ...(release.genres || [])]
+            .map((genre) => [normalizeGenre(genre), genre])
+        ).values()].join(', '),
+        tracks: importedTracks.length ? importedTracks : current.tracks,
+      }));
+      setGenreOptions((current) => mergeGenreOptions([...current, ...(release.genres || [])]));
+      setMusicBrainzReleaseQuery(release.title);
+      const dateNotice = !response.data.release_date
+        ? ' O MusicBrainz não forneceu uma data completa; informe-a antes de salvar.'
+        : '';
+      setAdminNotice(importedTracks.length
+        ? `Dados e faixas importados. Revise tudo antes de salvar; biografia, imagem do artista, letras e links não são fornecidos pelo MusicBrainz.${dateNotice}`
+        : `Dados importados, mas o MusicBrainz não forneceu uma lista de faixas para este lançamento.${dateNotice}`);
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível carregar as faixas no MusicBrainz agora.');
+    } finally {
+      setLoadingMusicBrainzReleaseId('');
+    }
+    setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '', accent_color: '' });
     setMusicBrainzArtistResults([]);
   };
 
@@ -3778,6 +4226,8 @@ function AdminPage() {
       title: '',
       artist_id: '',
       artist_name: '',
+      featured_artist_ids: [],
+      accent_color: '',
       cover_url: '',
       release_type: 'Album',
       release_date: '',
@@ -3917,6 +4367,7 @@ function AdminPage() {
       image_url: artist.image_url || '',
       banner_url: artist.banner_url || '',
       genres: artist.genre_names || artist.genre || '',
+      accent_color: artist.accent_color || '',
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -3951,6 +4402,8 @@ function AdminPage() {
       title: detail.data.release.title || '',
       artist_id: detail.data.release.artist_id ? String(detail.data.release.artist_id) : '',
       artist_name: detail.data.release.artist_name || '',
+      featured_artist_ids: (detail.data.release.featured_artists || []).map((artist) => String(artist.id)),
+      accent_color: detail.data.release.accent_color || '',
       cover_url: detail.data.release.cover_url || '',
       release_type: detail.data.release.release_type || 'Album',
       release_date: detail.data.release.release_date || '',
@@ -4049,6 +4502,33 @@ function AdminPage() {
       setAdminNotice(`O perfil de ${targetUser.full_name || targetUser.username} foi aprovado e recebeu uma notificação.`);
     } catch (error) {
       reportAdminError(error, 'Não foi possível aprovar este perfil.');
+    }
+  };
+
+  const updateProfileApprovalSetting = async (enabled) => {
+    if (!enabled && !window.confirm(
+      'Desativar a aprovação manual libera imediatamente todos os perfis que estão aguardando aprovação. Deseja continuar?'
+    )) {
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setIsSavingProfileApproval(true);
+    try {
+      const { data } = await api.put('/admin/settings/profile-approval', { enabled });
+      setProfileApprovalEnabled(data.enabled);
+      if (!data.enabled) setAdminUsers([]);
+      const approvedCount = Number(data.approved_count || 0);
+      setAdminNotice(data.enabled
+        ? 'Aprovação manual ativada. Novos perfis precisarão ser aprovados pelo ADM.'
+        : approvedCount
+          ? `Aprovação manual desativada. ${approvedCount} ${approvedCount === 1 ? 'perfil pendente foi liberado' : 'perfis pendentes foram liberados'}; as pessoas devem atualizar a página.`
+          : 'Aprovação manual desativada. Novos perfis serão liberados automaticamente.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível atualizar a configuração de aprovação de perfis.');
+    } finally {
+      setIsSavingProfileApproval(false);
     }
   };
 
@@ -4234,6 +4714,11 @@ function AdminPage() {
             />
           </div>
           <input placeholder="Gêneros, separados por vírgula" value={artistForm.genres} onChange={(e) => setArtistForm({ ...artistForm, genres: e.target.value })} />
+          <AccentPicker
+            label="Cor temática do artista"
+            value={artistForm.accent_color}
+            onChange={(color) => setArtistForm((prev) => ({ ...prev, accent_color: color }))}
+          />
           <button type="submit" className="primary-btn" disabled={artistImageUploads > 0}>{editingArtistId ? 'Salvar alterações' : 'Criar artista'}</button>
         </form>
 
@@ -4341,6 +4826,11 @@ function AdminPage() {
             placeholder="https://..."
             onImageUpload={uploadImage}
             onUploadStateChange={setIsReleaseCoverUploading}
+          />
+          <AccentPicker
+            label="Cor temática do lançamento"
+            value={releaseForm.accent_color}
+            onChange={(color) => setReleaseForm((current) => ({ ...current, accent_color: color }))}
           />
           <select value={releaseForm.release_type} onChange={(e) => setReleaseForm({ ...releaseForm, release_type: e.target.value })}>
             <option>Album</option>
@@ -4503,7 +4993,7 @@ function AdminPage() {
                   <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
                   <div className="admin-list-copy">
                     <strong>{release.title}</strong>
-                    <small>{release.artist_name} · {release.release_type}</small>
+                    <small>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')} · {release.release_type}</small>
                   </div>
                   <div className="admin-list-actions">
                     <button type="button" className="secondary-btn compact-btn" onClick={() => handleReleaseEdit(release)}>Editar</button>
@@ -4630,9 +5120,41 @@ function AdminPage() {
           <div className="admin-section-heading">
             <div>
               <span className="admin-section-kicker">Revisão de contas</span>
-              <h3>Perfis aguardando aprovação</h3>
-              <p>Revise os dados de cada perfil antes de liberar interações na plataforma.</p>
+              <h3>Aprovação de novos perfis</h3>
+              <p>Escolha se novos cadastros precisam de liberação manual para interagir na plataforma.</p>
             </div>
+          </div>
+          <div className="approval-setting-card glass-panel">
+            <div className="approval-setting-copy">
+              <strong>Exigir aprovação do ADM</strong>
+              <p>
+                {profileApprovalEnabled === null
+                  ? 'Carregando a configuração de aprovação.'
+                  : profileApprovalEnabled
+                    ? 'Novas contas poderão navegar, mas precisarão ser aprovadas para interagir.'
+                    : 'Novas contas serão aprovadas automaticamente após o cadastro.'}
+              </p>
+            </div>
+            <label className="approval-setting-toggle">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={profileApprovalEnabled === true}
+                disabled={isLoadingProfileApproval || isSavingProfileApproval || profileApprovalEnabled === null}
+                onChange={(event) => updateProfileApprovalSetting(event.target.checked)}
+              />
+              <span>
+                {isLoadingProfileApproval
+                  ? 'Carregando…'
+                  : isSavingProfileApproval
+                    ? 'Salvando…'
+                    : profileApprovalEnabled === null
+                      ? 'Indisponível'
+                      : profileApprovalEnabled
+                        ? 'Ativada'
+                        : 'Desativada'}
+              </span>
+            </label>
           </div>
           <div className="admin-listing-panel glass-panel">
             <div className="admin-list-grid">
