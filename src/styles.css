@@ -13,7 +13,7 @@
   --secondary: #f2d56b;
   --secondary-soft: #ffd38b;
   --page-background:
-    radial-gradient(circle at top left, rgba(194, 125, 78, 0.24), transparent 26%),
+    radial-gradient(circle at top left, rgba(78, 194, 177, 0.24), transparent 26%),
     radial-gradient(circle at top right, rgba(34, 115, 255, 0.18), transparent 24%),
     linear-gradient(180deg, #090b0f 0%, #10151b 74%, #0a0d12 100%);
   --panel-background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
