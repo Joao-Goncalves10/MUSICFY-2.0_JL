@@ -38,6 +38,8 @@
   --glass: rgba(255, 255, 255, 0.76);
   --glass-strong: rgba(255, 255, 255, 0.94);
   --glass-soft: rgba(27, 45, 68, 0.055);
+  --surface-hover: rgba(34, 69, 98, 0.07);
+  --surface-raised: rgba(255, 255, 255, 0.92);
   --line: rgba(30, 48, 69, 0.12);
   --text: #1a2636;
   --muted: #647286;
@@ -62,6 +64,7 @@
   --focus-ring: rgba(44, 128, 92, 0.28);
   --shadow: 0 28px 80px rgba(42, 59, 78, 0.14);
   --shadow-soft: 0 15px 34px rgba(42, 59, 78, 0.1);
+  --panel-border: rgba(37, 58, 79, 0.12);
 }
 
 * {
@@ -8223,4 +8226,369 @@ textarea {
 .home-recent-release:hover {
   border-color: color-mix(in srgb, var(--release-accent, #2563eb) 42%, transparent);
   background: color-mix(in srgb, var(--release-accent, #2563eb) 11%, transparent);
+}
+
+:root[data-theme="light"] .app-shell {
+  color: var(--text);
+}
+
+:root[data-theme="light"] .topbar.glass-panel {
+  color: var(--text);
+  background: linear-gradient(115deg, rgba(255,255,255,0.96), rgba(241,247,251,0.94));
+  border-color: rgba(38, 63, 86, 0.14);
+  box-shadow: 0 12px 30px rgba(38, 57, 76, 0.1), inset 0 1px 0 #fff;
+}
+
+:root[data-theme="light"] .topbar .brand,
+:root[data-theme="light"] .topbar .nav-links a,
+:root[data-theme="light"] .topbar .theme-toggle,
+:root[data-theme="light"] .topbar .notification-trigger,
+:root[data-theme="light"] .topbar .logout-btn {
+  color: var(--text);
+}
+
+:root[data-theme="light"] .topbar .brand {
+  text-shadow: none;
+}
+
+:root[data-theme="light"] .topbar .search-wrap input {
+  color: var(--text);
+  background: rgba(255,255,255,0.9);
+  border-color: rgba(38, 63, 86, 0.14);
+  box-shadow: inset 0 1px 2px rgba(30,48,69,0.04);
+}
+
+:root[data-theme="light"] .topbar .search-wrap input::placeholder,
+:root[data-theme="light"] input::placeholder,
+:root[data-theme="light"] textarea::placeholder {
+  color: #78879a;
+  opacity: 1;
+}
+
+:root[data-theme="light"] .topbar .theme-toggle,
+:root[data-theme="light"] .topbar .notification-trigger,
+:root[data-theme="light"] .topbar .logout-btn {
+  border-color: var(--control-border);
+  background: rgba(35, 57, 78, 0.045);
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .topbar .theme-toggle:hover,
+:root[data-theme="light"] .topbar .notification-trigger:hover,
+:root[data-theme="light"] .topbar .logout-btn:hover {
+  border-color: rgba(38, 63, 86, 0.22);
+  background: rgba(35, 57, 78, 0.09);
+}
+
+:root[data-theme="light"] .topbar .login-pill {
+  color: #10251c;
+}
+
+:root[data-theme="light"] .side-dock {
+  background: linear-gradient(160deg, rgba(255,255,255,0.97), rgba(243,247,250,0.95));
+  border-color: var(--panel-border);
+}
+
+:root[data-theme="light"] .side-dock-link {
+  color: #58697e;
+}
+
+:root[data-theme="light"] .side-dock-link:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+:root[data-theme="light"] .side-dock-link.is-active {
+  color: #1b6848;
+  background: linear-gradient(135deg, rgba(44,128,92,0.14), rgba(44,128,92,0.07));
+  box-shadow: inset 0 0 0 1px rgba(44,128,92,0.12);
+}
+
+:root[data-theme="light"] .search-results,
+:root[data-theme="light"] .notification-popover {
+  color: var(--text);
+  background: rgba(255,255,255,0.98);
+  border-color: var(--panel-border);
+  box-shadow: 0 22px 60px rgba(31,48,66,0.18);
+}
+
+:root[data-theme="light"] .search-results a {
+  color: var(--text);
+}
+
+:root[data-theme="light"] .search-results a:hover,
+:root[data-theme="light"] .notification-item:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+:root[data-theme="light"] .notification-icon {
+  border-color: rgba(37,58,79,0.12);
+  color: #236947;
+}
+
+:root[data-theme="light"] .notification-icon.is-review_like {
+  color: #a72c4b;
+}
+
+:root[data-theme="light"] .notification-icon.is-new_release {
+  color: #4658a8;
+}
+
+:root[data-theme="light"] .notification-error,
+:root[data-theme="light"] .playlist-form-error,
+:root[data-theme="light"] .error-text {
+  color: #a32343;
+}
+
+:root[data-theme="light"] .primary-btn {
+  color: #10251c;
+  border-color: rgba(44,128,92,0.2);
+  background: linear-gradient(135deg, #a9e8c6, #79d3a8);
+  box-shadow: 0 8px 20px rgba(44,128,92,0.16);
+}
+
+:root[data-theme="light"] .secondary-btn,
+:root[data-theme="light"] .ghost-btn,
+:root[data-theme="light"] .close-btn,
+:root[data-theme="light"] .profile-tabs button:not(.is-active),
+:root[data-theme="light"] .auth-toggle button:not(.active) {
+  color: var(--text);
+  border-color: var(--control-border);
+  background: linear-gradient(180deg, #fff, #f3f6f8);
+  box-shadow: 0 3px 10px rgba(35,57,78,0.06);
+}
+
+:root[data-theme="light"] .profile-tabs button.is-active,
+:root[data-theme="light"] .auth-toggle button.active,
+:root[data-theme="light"] .auth-toggle button.active:hover {
+  color: #fff;
+  border-color: #236947;
+  background: linear-gradient(135deg, #2c805c, #236947);
+  box-shadow: 0 5px 14px rgba(35,105,71,0.2);
+}
+
+:root[data-theme="light"] .primary-btn:hover,
+:root[data-theme="light"] .secondary-btn:hover,
+:root[data-theme="light"] .ghost-btn:hover,
+:root[data-theme="light"] .close-btn:hover,
+:root[data-theme="light"] .profile-tabs button:not(.is-active):hover {
+  border-color: rgba(44,128,92,0.34);
+  filter: brightness(0.98);
+}
+
+:root[data-theme="light"] .danger-btn {
+  color: #9f2943;
+  border-color: rgba(177,48,72,0.22);
+  background: rgba(194,55,78,0.08);
+}
+
+:root[data-theme="light"] .danger-btn:hover:not(:disabled) {
+  color: #851d36;
+  border-color: rgba(177,48,72,0.36);
+  background: rgba(194,55,78,0.14);
+}
+
+:root[data-theme="light"] .image-upload-field,
+:root[data-theme="light"] .admin-list-item,
+:root[data-theme="light"] .featured-artists-fieldset,
+:root[data-theme="light"] .release-genre-picker,
+:root[data-theme="light"] .release-genre-tag,
+:root[data-theme="light"] .admin-listing-panel,
+:root[data-theme="light"] .musicbrainz-search,
+:root[data-theme="light"] .musicbrainz-result {
+  color: var(--text);
+  border-color: var(--panel-border);
+  background: var(--surface-raised);
+}
+
+:root[data-theme="light"] .admin-list-item,
+:root[data-theme="light"] .image-upload-field {
+  box-shadow: 0 8px 22px rgba(42,59,78,0.06);
+}
+
+:root[data-theme="light"] .release-genre-tag {
+  color: var(--muted);
+}
+
+:root[data-theme="light"] .release-genre-tag:hover,
+:root[data-theme="light"] .release-genre-tag.is-selected {
+  color: #184a35;
+  border-color: rgba(44,128,92,0.24);
+  background: rgba(44,128,92,0.1);
+}
+
+:root[data-theme="light"] .featured-artist-option {
+  color: var(--muted);
+  background: rgba(37,58,79,0.035);
+}
+
+:root[data-theme="light"] .featured-artist-option.is-selected {
+  color: #294d83;
+  border-color: rgba(70,102,171,0.24);
+  background: rgba(70,102,171,0.1);
+}
+
+:root[data-theme="light"] .home-review-card,
+:root[data-theme="light"] .home-review-prompt,
+:root[data-theme="light"] .home-recent-panel,
+:root[data-theme="light"] .profile-review-card,
+:root[data-theme="light"] .profile-stat-card,
+:root[data-theme="light"] .profile-bio-card,
+:root[data-theme="light"] .playlist-create-panel,
+:root[data-theme="light"] .profile-playlist-card,
+:root[data-theme="light"] .profile-favorite-card,
+:root[data-theme="light"] .profile-empty-state,
+:root[data-theme="light"] .playlist-hero,
+:root[data-theme="light"] .playlist-edit-form,
+:root[data-theme="light"] .playlist-track-row,
+:root[data-theme="light"] .artist-about,
+:root[data-theme="light"] .artist-empty-state,
+:root[data-theme="light"] .profile-social-user,
+:root[data-theme="light"] .profile-social-strip {
+  color: var(--text);
+  background-color: var(--surface-raised);
+  border-color: var(--panel-border);
+  box-shadow: 0 8px 24px rgba(42,59,78,0.055);
+}
+
+:root[data-theme="light"] .home-review-card,
+:root[data-theme="light"] .profile-bio-card,
+:root[data-theme="light"] .playlist-create-panel,
+:root[data-theme="light"] .playlist-hero {
+  background-image: linear-gradient(145deg, rgba(255,255,255,0.94), rgba(242,247,250,0.86));
+}
+
+:root[data-theme="light"] .profile-stat-card:hover,
+:root[data-theme="light"] .profile-playlist-card:hover,
+:root[data-theme="light"] .profile-favorite-card:hover {
+  border-color: rgba(44,128,92,0.28);
+  background-color: #fff;
+  box-shadow: 0 12px 28px rgba(42,59,78,0.1);
+}
+
+:root[data-theme="light"] .profile-social-strip {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .loading-panel,
+:root[data-theme="light"] .profile-tabs span,
+:root[data-theme="light"] .profile-social-counts button:hover,
+:root[data-theme="light"] .playlist-track-owner-actions button {
+  color: var(--text);
+  border-color: var(--panel-border);
+  background: var(--surface-raised);
+}
+
+:root[data-theme="light"] .home-feed-tabs {
+  background: rgba(35,57,78,0.06);
+  border-color: var(--panel-border);
+}
+
+:root[data-theme="light"] .home-feed-tabs button {
+  color: var(--muted);
+}
+
+:root[data-theme="light"] .home-feed-tabs button.is-active {
+  color: #fff;
+  background: linear-gradient(135deg, #3679c9, #6558b8);
+  box-shadow: 0 5px 14px rgba(64,91,170,0.2);
+}
+
+:root[data-theme="light"] .home-review-prompt {
+  border-color: var(--panel-border);
+}
+
+:root[data-theme="light"] .home-review-prompt:hover {
+  border-color: rgba(44,128,92,0.3);
+  background: #fff;
+}
+
+:root[data-theme="light"] .home-review-prompt-icon,
+:root[data-theme="light"] .profile-empty-state > span,
+:root[data-theme="light"] .profile-stat-icon {
+  color: #236947;
+  background: rgba(44,128,92,0.1);
+}
+
+:root[data-theme="light"] .artist-card {
+  color: var(--text);
+  border-color: var(--panel-border);
+  background: linear-gradient(145deg, rgba(255,255,255,0.92), rgba(245,248,250,0.78));
+}
+
+:root[data-theme="light"] .artist-card:hover {
+  border-color: color-mix(in srgb, var(--artist-accent, #2563eb) 42%, transparent);
+  background: linear-gradient(145deg, #fff, rgba(242,247,250,0.92));
+}
+
+:root[data-theme="light"] .artist-detail-page .artist-release-row:hover {
+  color: var(--text);
+}
+
+:root[data-theme="light"] .explore-filter-label,
+:root[data-theme="light"] .artist-page-tabs a,
+:root[data-theme="light"] .artist-follow-count {
+  color: var(--muted);
+}
+
+:root[data-theme="light"] .artist-page-tabs a:hover {
+  color: var(--primary-strong);
+}
+
+:root[data-theme="light"] .release-view .release-detail .eyebrow,
+:root[data-theme="light"] .release-view .release-artist-link,
+:root[data-theme="light"] .release-view .release-description,
+:root[data-theme="light"] .release-view .stat-label,
+:root[data-theme="light"] .release-view .section-heading-row > span,
+:root[data-theme="light"] .release-view .track-text-block small,
+:root[data-theme="light"] .release-view .lyrics-panel-head,
+:root[data-theme="light"] .release-view .lyrics-panel p {
+  color: var(--muted);
+}
+
+:root[data-theme="light"] .release-view .stat-pill,
+:root[data-theme="light"] .release-view .track-item,
+:root[data-theme="light"] .release-view .lyrics-panel {
+  color: var(--text);
+  border-color: var(--panel-border);
+  background: linear-gradient(145deg, rgba(255,255,255,0.96), rgba(242,247,250,0.9));
+  box-shadow: 0 8px 22px rgba(42,59,78,0.06);
+}
+
+:root[data-theme="light"] .release-view .track-item:hover,
+:root[data-theme="light"] .release-view .track-item.is-open {
+  border-color: color-mix(in srgb, var(--release-accent, #2563eb) 36%, transparent);
+  background: linear-gradient(145deg, #fff, rgba(240,247,251,0.96));
+}
+
+:root[data-theme="light"] .release-view .track-link-btn,
+:root[data-theme="light"] .release-view .track-compact-btn,
+:root[data-theme="light"] .release-view .close-lyrics-btn {
+  color: var(--text);
+  border-color: var(--control-border);
+  background: rgba(37,58,79,0.045);
+}
+
+:root[data-theme="light"] .release-view .primary-btn,
+:root[data-theme="light"] .release-view .secondary-btn {
+  color: #fff;
+  border-color: transparent;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 82%, #fff),
+    var(--release-accent, #8b5cf6)
+  );
+}
+
+:root[data-theme="light"] .release-view .explicit-tag {
+  color: #8f2f47;
+}
+
+:root[data-theme="light"] .admin-notice {
+  color: #205b3b;
+  border-color: rgba(44,128,92,0.24);
+  background: rgba(44,128,92,0.08);
 }
