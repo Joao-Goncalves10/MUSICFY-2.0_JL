@@ -85,6 +85,7 @@ body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   background: var(--page-background);
+  background-attachment: fixed;
   color: var(--text);
   line-height: 1.5;
 }
@@ -1804,9 +1805,9 @@ select option:checked {
 }
 
 .home-feed-tabs button.is-active {
-  background: linear-gradient(135deg, #2563eb, #8b5cf6);
+  background: linear-gradient(135deg, #25ebe1, #478ef1);
   color: #fff;
-  box-shadow: 0 8px 20px rgba(37,99,235,0.22);
+  box-shadow: 0 8px 20px #258beb44;
 }
 
 .accent-picker {
@@ -8591,4 +8592,142 @@ textarea {
   color: #205b3b;
   border-color: rgba(44,128,92,0.24);
   background: rgba(44,128,92,0.08);
+}
+
+
+
+
+/* ---------------------------------------------------------------------------------------
+correção */
+/* ==========================================================================
+   CORREÇÕES DE FUNDO FIXO E MODO CLARO
+   ========================================================================== */
+
+/* 1. Mantém o fundo fixo na tela independentemente da altura da página */
+html {
+  background-color: var(--bg);
+}
+
+body {
+  background-color: var(--bg);
+  background-image: var(--page-background);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+/* 2. Garante que o brilho superior da página de artista/álbum não estique */
+.app-shell.has-shell-accent {
+  background-attachment: fixed;
+  background-size: 100% 100vh;
+}
+
+/* 3. Ajustes de contraste e transparência (Glass) no Modo Claro */
+:root[data-theme="light"] body {
+  background-color: var(--bg);
+  background-image: var(--page-background);
+  background-attachment: fixed;
+}
+
+/* Restaura o efeito de vidro translúcido nos cards no modo claro */
+:root[data-theme="light"] .glass-panel:not(.artist-hero),
+:root[data-theme="light"] .home-review-card,
+:root[data-theme="light"] .home-recent-panel,
+:root[data-theme="light"] .profile-review-card,
+:root[data-theme="light"] .profile-stat-card,
+:root[data-theme="light"] .profile-bio-card,
+:root[data-theme="light"] .playlist-create-panel,
+:root[data-theme="light"] .profile-playlist-card,
+:root[data-theme="light"] .profile-favorite-card,
+:root[data-theme="light"] .playlist-track-row,
+:root[data-theme="light"] .social-user-card {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.78), rgba(246, 250, 253, 0.62));
+  border-color: rgba(30, 48, 69, 0.12);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+/* Mantém a cor de destaque (accent) nos cards de feed e lançamentos no modo claro */
+:root[data-theme="light"] .home-review-card {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--artist-accent, #2c805c) 8%, rgba(255, 255, 255, 0.85)),
+    rgba(246, 250, 253, 0.68)
+  );
+}
+
+:root[data-theme="light"] .home-review-release {
+  background: rgba(30, 48, 69, 0.045);
+  border-color: rgba(30, 48, 69, 0.1);
+}
+
+:root[data-theme="light"] .home-recent-release:hover {
+  background: rgba(44, 128, 92, 0.08);
+  border-color: rgba(44, 128, 92, 0.24);
+}
+
+/* Corrige contraste de textos e botões na página de Álbum/Lançamento */
+:root[data-theme="light"] .release-view .release-description,
+:root[data-theme="light"] .release-view .lyrics-panel p {
+  color: var(--text);
+}
+
+:root[data-theme="light"] .release-view .release-artist-link {
+  color: var(--primary-strong);
+}
+
+:root[data-theme="light"] .release-view .track-number {
+  color: var(--text);
+  background: rgba(30, 48, 69, 0.08);
+}
+
+:root[data-theme="light"] .release-view .release-detail {
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--release-accent, #2563eb) 14%, rgba(255, 255, 255, 0.86)),
+    rgba(246, 249, 251, 0.72)
+  );
+}
+
+/* Corrige tags de gênero no modo claro */
+:root[data-theme="light"] .genre-track .genre-pill {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.75);
+  border-color: rgba(30, 48, 69, 0.12);
+}
+
+:root[data-theme="light"] .genre-track .genre-pill:hover {
+  color: var(--text);
+  border-color: var(--primary);
+}
+
+:root[data-theme="light"] .genre-track .genre-pill.is-selected {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+}
+
+/* Corrige modais (Avaliação e Popovers) no modo claro */
+:root[data-theme="light"] .review-modal {
+  background:
+    radial-gradient(circle at 100% 0, rgba(44, 128, 92, 0.12), transparent 36%),
+    rgba(255, 255, 255, 0.96);
+  border-color: rgba(30, 48, 69, 0.14);
+}
+
+:root[data-theme="light"] .review-album-summary,
+:root[data-theme="light"] .review-text-label textarea {
+  background: rgba(30, 48, 69, 0.045);
+}
+
+/* Remove caixa indesejada na barra de seguidores do perfil */
+:root[data-theme="light"] .profile-social-strip {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Corrige botões de ação da topbar (Entrar / Sair) */
+:root[data-theme="light"] .topbar .login-pill {
+  color: #ffffff !important;
+  background: linear-gradient(135deg, var(--primary), var(--primary-strong));
 }
