@@ -33,7 +33,9 @@ This combination keeps the project lightweight while still providing a real pers
 - Track favorites
 - Pre-save flow and notification model
 - Admin dashboard for creating and editing artists and releases, with edit shortcuts on artist and release detail pages
+- Admin catalog forms can search MusicBrainz for artist details and release groups, then import release metadata, track titles, durations, and available Cover Art Archive artwork
 - Admin tools organized into catalog, homepage highlights, and moderation sections; profile suspensions are reversible and users can access their in-app notices
+- Admin can enable or disable manual approval for new profiles; disabling it automatically approves existing pending profiles
 - Responsive Frutiger Aero UI
 
 ## Local setup
@@ -98,11 +100,13 @@ If your computer cannot connect to TiDB, reset through Render instead: set `MUSI
 
 The TiDB schema is defined in `server/schema.sql` using MySQL-compatible types and syntax. The API applies it to the database named by `TIDB_DATABASE` at startup. The database must already exist in TiDB Cloud. Connection settings are read from `.env`; the server fails with a configuration error if required `TIDB_*` values are missing.
 
-The relational catalog links artists to releases and releases (albums, EPs, or singles) to tracks. Artist, release, and track URLs are stored in `artist_links`, `release_links`, and `track_links`. Lyrics and translations are stored in `track_texts`, keyed by track, content type, and language code; use `und` when the language is unknown. The existing local SQLite database is not uploaded or copied to TiDB automatically; it remains untouched.
+The relational catalog links artists to releases and releases (albums, EPs, or singles) to tracks. App-wide settings, including the manual profile approval choice, are persisted in `app_settings`. Artist, release, and track URLs are stored in `artist_links`, `release_links`, and `track_links`. Lyrics and translations are stored in `track_texts`, keyed by track, content type, and language code; use `und` when the language is unknown. The existing local SQLite database is not uploaded or copied to TiDB automatically; it remains untouched.
 
 In the admin panel, create an artist before creating a release, then select that artist from the catalog list. The API validates the selected artist ID against TiDB to prevent invalid release-to-artist links.
 
-The admin panel separates catalog management, homepage carousel highlights, and moderation. Moderators can hide a standard user profile without deleting the account or its data, restore it later, and remove reviews. The affected user receives an in-app notification; while a profile is suspended, its owner can sign in only to read and acknowledge notifications.
+The catalog forms can search MusicBrainz without an API key. Artist name and genre tags can be copied into an artist form; a release search can prefill its title, type, full release date when available, genres, track titles/durations, and Cover Art Archive URL. Review all imported data before saving: MusicBrainz does not supply the site's artist biography, artist images, lyrics, translations, or streaming links, and a complete release date or cover image may not be available. The integration identifies Musicfy in its MusicBrainz User-Agent and spaces requests to respect the service's rate limit.
+
+The admin panel separates catalog management, homepage carousel highlights, profile approvals, and moderation. In profile approvals, the admin can decide whether new accounts require manual approval; this is enabled by default. Disabling it automatically approves and notifies any profiles already waiting, while enabling it again only affects future registrations. Moderators can hide a standard user profile without deleting the account or its data, restore it later, and remove reviews. The affected user receives an in-app notification; while a profile is suspended, its owner can sign in only to read and acknowledge notifications.
 
 ### Importing a local SQLite catalog
 
