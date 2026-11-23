@@ -2022,6 +2022,7 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
   return res.json({
     featured: await attachReleaseArtists(featured),
     recent: await attachReleaseArtists(recent),
+    releases: await attachReleaseArtists(releases),
     artists,
     reviews,
   });
