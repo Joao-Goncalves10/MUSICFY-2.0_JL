@@ -1323,7 +1323,9 @@ function ArtistsPage() {
       </div>
       {filtered.length ? (
         <div className="artist-grid">
-          <ArtistCard key={artist.id} artist={artist} />
+          {filtered.map((artist) => (
+            <ArtistCard key={artist.id} artist={artist} />
+          ))}
         </div>
       ) : (
         <div className="profile-empty-state glass-panel">
