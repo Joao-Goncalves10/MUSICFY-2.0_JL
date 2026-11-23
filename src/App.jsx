@@ -51,28 +51,53 @@ const getReleaseFallbackImage = (release) => (
 );
 
 const accentPalette = [
-  ['Azul elétrico', '#2563eb'], ['Azul oceano', '#0ea5e9'], ['Ciano', '#06b6d4'],
-  ['Verde esmeralda', '#10b981'], ['Verde Lima', '#84cc16'], ['Lima neón', '#a3e635'],
-  ['Amarelo ouro', '#eab308'], ['Âmbar', '#f59e0b'], ['Laranja', '#f97316'],
-  ['Coral', '#fb7185'], ['Vermelho', '#ef4444'], ['Rubi', '#dc2626'],
-  ['Rosa', '#ec4899'], ['Magenta', '#d946ef'], ['Roxo', '#a855f7'],
-  ['Violeta', '#8b5cf6'], ['Índigo', '#6366f1'], ['Grafite', '#64748b'],
-  ['Turquesa', '#14b8a6'], ['Menta', '#34d399'], ['Oliva', '#65a30d'],
-  ['Mostarda', '#ca8a04'], ['Pêssego', '#fdba74'], ['Salmão', '#fda4af'],
-  ['Framboesa', '#be123c'], ['Borgonha', '#881337'], ['Lavanda', '#c4b5fd'],
-  ['Lilás', '#c084fc'], ['Azul royal', '#1d4ed8'], ['Azul noite', '#1e3a8a'],
-  ['Cobalto', '#1e40af'], ['Aqua', '#22d3ee'], ['Marinho', '#164e63'],
-  ['Floresta', '#166534'], ['Musgo', '#4d7c0f'], ['Chocolate', '#78350f'],
-  ['Púrpura', '#7e22ce'], ['Berinjela', '#581c87'], ['Prata', '#94a3b8'],
-  ['Azul celeste', '#38bdf8'], ['Azul glacial', '#7dd3fc'], ['Safira', '#1e3b8a'],
-  ['Verde jade', '#059669'], ['Verde pinho', '#14532d'], ['Verde água', '#2dd4bf'],
-  ['Amarelo sol', '#facc15'], ['Creme', '#fde047'], ['Tangerina', '#ea580c'],
-  ['Terracota', '#c2410c'], ['Carmesim', '#991b1b'], ['Vinho', '#7f1d1d'],
-  ['Rosa claro', '#f472b6'], ['Chiclete', '#db2777'], ['Fúcsia', '#c026d3'],
-  ['Orquídea', '#e879f9'], ['Ametista', '#9333ea'], ['Ameixa', '#4c1d95'],
-  ['Caramelo', '#b45309'], ['Cobre', '#9a3412'], ['Bronze', '#92400e'],
-  ['Areia', '#d6d3d1'], ['Cinza ardósia', '#475569'], ['Chumbo', '#334155'],
-  ['Obsidiana', '#1e293b'], ['Pérola', '#e2e8f0'],
+  // Vermelhos & Rosas
+  ['Salmão', '#fda4af'], ['Coral', '#fb7185'], ['Rosa claro', '#f472b6'],
+  ['Rosa choque', '#ec4899'], ['Chiclete', '#db2777'], ['Framboesa', '#be123c'],
+  ['Vermelho vivo', '#ef4444'], ['Rubi', '#dc2626'], ['Carmesim', '#b91c1c'],
+  ['Vinho', '#991b1b'], ['Borgonha', '#881337'], ['Sangria', '#7f1d1d'],
+
+  // Laranjas & Pêssegos
+  ['Damasco', '#fed7aa'], ['Pêssego', '#fdba74'], ['Laranja claro', '#fb923c'],
+  ['Laranja', '#f97316'], ['Tangerina', '#ea580c'], ['Terracota', '#c2410c'],
+  ['Ferrugem', '#9a3412'],
+
+  // Amarelos & Dourados
+  ['Creme', '#fef08a'], ['Canário', '#fde047'], ['Amarelo sol', '#facc15'],
+  ['Amarelo ouro', '#eab308'], ['Âmbar', '#f59e0b'], ['Mel', '#d97706'],
+  ['Mostarda', '#ca8a04'], ['Ocre', '#a16207'],
+
+  // Verdes
+  ['Lima néon', '#a3e635'], ['Verde lima', '#84cc16'], ['Oliva claro', '#65a30d'],
+  ['Musgo', '#4d7c0f'], ['Oliva escuro', '#3f6212'], ['Menta', '#6ee7b7'],
+  ['Verde menta', '#34d399'], ['Verde esmeralda', '#10b981'], ['Verde jade', '#059669'],
+  ['Verde trevo', '#16a34a'], ['Floresta', '#166534'], ['Verde pinho', '#14532d'],
+
+  // Cianos & Turquesas
+  ['Água-marinha', '#5eead4'], ['Verde água', '#2dd4bf'], ['Turquesa', '#14b8a6'],
+  ['Teal', '#0d9488'], ['Aqua', '#22d3ee'], ['Ciano', '#06b6d4'],
+  ['Ciano profundo', '#0891b2'], ['Marinho escuro', '#164e63'],
+
+  // Azuis
+  ['Azul glacial', '#7dd3fc'], ['Azul celeste', '#38bdf8'], ['Azul oceano', '#0ea5e9'],
+  ['Azul cerúleo', '#0284c7'], ['Azul céu', '#60a5fa'], ['Azul elétrico', '#2563eb'],
+  ['Azul royal', '#1d4ed8'], ['Cobalto', '#1e40af'], ['Safira', '#1e3b8a'],
+  ['Azul noite', '#1e3a8a'], ['Meia-noite', '#172554'],
+
+  // Índigos, Violetas & Roxos
+  ['Pervinca', '#a5b4fc'], ['Índigo claro', '#818cf8'], ['Índigo', '#6366f1'],
+  ['Índigo profundo', '#4f46e5'], ['Lavanda', '#c4b5fd'], ['Violeta claro', '#a78bfa'],
+  ['Violeta', '#8b5cf6'], ['Ametista', '#7c3aed'], ['Lilás', '#c084fc'],
+  ['Roxo', '#a855f7'], ['Púrpura', '#9333ea'], ['Uva', '#7e22ce'],
+  ['Berinjela', '#581c87'], ['Ameixa', '#4c1d95'], ['Orquídea', '#e879f9'],
+  ['Magenta', '#d946ef'], ['Fúcsia', '#c026d3'], ['Fúcsia profundo', '#a21caf'],
+
+  // Terrosos & Neutros
+  ['Areia', '#e7e5e4'], ['Linho', '#d6d3d1'], ['Caramelo', '#b45309'],
+  ['Bronze', '#92400e'], ['Chocolate', '#78350f'], ['Café', '#451a03'],
+  ['Pérola', '#e2e8f0'], ['Prata', '#94a3b8'], ['Grafite', '#64748b'],
+  ['Cinza ardósia', '#475569'], ['Chumbo', '#334155'], ['Obsidiana', '#1e293b'],
+  ['Carvão', '#0f172a'],
 ];
 
 const AccentPicker = ({ label, value, onChange }) => (
