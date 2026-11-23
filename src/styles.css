@@ -8731,3 +8731,70 @@ body {
   color: #ffffff !important;
   background: linear-gradient(135deg, var(--primary), var(--primary-strong));
 }
+
+
+
+/* ==========================================================================
+   COR VARIÁVEL NOS CARDS DE RESENHA (HOME-REVIEW-CARD)
+   ========================================================================== */
+
+/* Modo Escuro (Padrão) */
+.home-review-card.glass-panel {
+  --card-accent: var(--review-accent, var(--artist-accent, var(--primary)));
+  background:
+    radial-gradient(
+      circle at 12% 0%,
+      color-mix(in srgb, var(--card-accent) 26%, transparent),
+      transparent 52%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--card-accent) 16%, rgba(16, 30, 56, 0.88)),
+      rgba(9, 17, 32, 0.84)
+    );
+  border-color: color-mix(in srgb, var(--card-accent) 34%, var(--line));
+  transition: transform 0.18s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.home-review-card.glass-panel:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--card-accent) 62%, rgba(255, 255, 255, 0.2));
+  box-shadow:
+    0 18px 38px rgba(3, 8, 20, 0.48),
+    0 0 24px color-mix(in srgb, var(--card-accent) 22%, transparent);
+}
+
+/* Destaque sutil na caixa interna do álbum dentro da resenha */
+.home-review-card .home-review-release {
+  background: color-mix(in srgb, var(--card-accent) 10%, rgba(7, 13, 25, 0.6));
+  border-color: color-mix(in srgb, var(--card-accent) 24%, var(--line));
+}
+
+/* Modo Claro */
+:root[data-theme="light"] .home-review-card.glass-panel {
+  --card-accent: var(--review-accent, var(--artist-accent, var(--primary)));
+  background:
+    radial-gradient(
+      circle at 12% 0%,
+      color-mix(in srgb, var(--card-accent) 22%, transparent),
+      transparent 54%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--card-accent) 14%, rgba(255, 255, 255, 0.9)),
+      rgba(246, 250, 253, 0.78)
+    );
+  border-color: color-mix(in srgb, var(--card-accent) 32%, rgba(30, 48, 69, 0.14));
+}
+
+:root[data-theme="light"] .home-review-card.glass-panel:hover {
+  border-color: color-mix(in srgb, var(--card-accent) 58%, rgba(30, 48, 69, 0.2));
+  box-shadow:
+    0 16px 32px rgba(24, 39, 58, 0.12),
+    0 0 20px color-mix(in srgb, var(--card-accent) 18%, transparent);
+}
+
+:root[data-theme="light"] .home-review-card .home-review-release {
+  background: color-mix(in srgb, var(--card-accent) 8%, rgba(255, 255, 255, 0.75));
+  border-color: color-mix(in srgb, var(--card-accent) 22%, rgba(30, 48, 69, 0.12));
+}
