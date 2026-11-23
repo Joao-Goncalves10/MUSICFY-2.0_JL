@@ -216,6 +216,7 @@ const uploadImage = async (file) => {
 };
 
 const AuthContext = createContext();
+const ShellAccentContext = createContext(() => {});
 
 function useAuth() {
   return useContext(AuthContext);
@@ -315,39 +316,45 @@ export default function App() {
 
 function AppContent({ theme, onToggleTheme }) {
   const { user } = useAuth();
+  const [shellAccent, setShellAccent] = useState('');
 
   return (
-    <div className="app-shell">
-      <Navbar theme={theme} onToggleTheme={onToggleTheme} />
-      <div className={`app-layout${user?.is_suspended ? ' is-account-suspended' : ''}`}>
-        <Sidebar />
-        <main className="page-shell">
-          {user && !user.is_suspended && !isAccountApproved(user) && (
-            <div className="account-approval-notice" role="status">
-              <strong>Conta em análise</strong>
-              <span>
-                Você pode navegar e ler o conteúdo. As interações serão liberadas após a aprovação da equipe administrativa; atualize a página depois de receber a confirmação.
-              </span>
-            </div>
-          )}
-          <AccountAccessGate>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/explore" element={<ExplorePage />} />
-              <Route path="/artists" element={<ArtistsPage />} />
-              <Route path="/social" element={<ProtectedRoute><SocialPage /></ProtectedRoute>} />
-              <Route path="/community" element={<Navigate to="/social" replace />} />
-              <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
-              <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
-              <Route path="/playlists/:playlistId" element={<PlaylistPage />} />
-              <Route path="/profile/:userId" element={<ProfilePage />} />
-              <Route path="/auth" element={<AuthPage />} />
-              <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
-            </Routes>
-          </AccountAccessGate>
-        </main>
+    <ShellAccentContext.Provider value={setShellAccent}>
+      <div
+        className={`app-shell${shellAccent ? ' has-shell-accent' : ''}`}
+        style={shellAccent ? { '--shell-accent': shellAccent } : undefined}
+      >
+        <Navbar theme={theme} onToggleTheme={onToggleTheme} />
+        <div className={`app-layout${user?.is_suspended ? ' is-account-suspended' : ''}`}>
+          <Sidebar />
+          <main className="page-shell">
+            {user && !user.is_suspended && !isAccountApproved(user) && (
+              <div className="account-approval-notice" role="status">
+                <strong>Conta em análise</strong>
+                <span>
+                  Você pode navegar e ler o conteúdo. As interações serão liberadas após a aprovação da equipe administrativa; atualize a página depois de receber a confirmação.
+                </span>
+              </div>
+            )}
+            <AccountAccessGate>
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/explore" element={<ExplorePage />} />
+                <Route path="/artists" element={<ArtistsPage />} />
+                <Route path="/social" element={<ProtectedRoute><SocialPage /></ProtectedRoute>} />
+                <Route path="/community" element={<Navigate to="/social" replace />} />
+                <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
+                <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
+                <Route path="/playlists/:playlistId" element={<PlaylistPage />} />
+                <Route path="/profile/:userId" element={<ProfilePage />} />
+                <Route path="/auth" element={<AuthPage />} />
+                <Route path="/admin" element={<ProtectedRoute admin><AdminPage /></ProtectedRoute>} />
+              </Routes>
+            </AccountAccessGate>
+          </main>
+        </div>
       </div>
-    </div>
+    </ShellAccentContext.Provider>
   );
 }
 
@@ -738,7 +745,11 @@ function FeaturedCarousel({ slides, user }) {
         }
       }}
     >
-      <article className="home-featured-slide" key={activeSlide.id}>
+      <article
+        className="home-featured-slide"
+        key={activeSlide.id}
+        style={{ '--release-accent': activeSlide.accent_color || activeSlide.artist_accent_color || '#2563eb' }}
+      >
         <img
           className="home-featured-banner"
           src={activeSlide.banner_url || activeSlide.cover_url || getReleaseFallbackImage(activeSlide)}
@@ -985,7 +996,11 @@ function HomePage() {
                     <RatingBadge value={review.rating} />
                   </header>
 
-                  <Link to={`/releases/${review.release_id}`} className="home-review-release">
+                  <Link
+                    to={`/releases/${review.release_id}`}
+                    className="home-review-release"
+                    style={{ '--release-accent': review.accent_color || review.artist_accent_color || '#2563eb' }}
+                  >
                     <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
                     <span>
                       <small>RESENHA DE</small>
@@ -1060,7 +1075,12 @@ function HomePage() {
           {visibleRecentReleases.length ? (
             <div className="home-recent-list">
               {visibleRecentReleases.map((release) => (
-                <Link key={release.id} to={`/releases/${release.id}`} className="home-recent-release">
+                <Link
+                  key={release.id}
+                  to={`/releases/${release.id}`}
+                  className="home-recent-release"
+                  style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#2563eb' }}
+                >
                   <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
                   <span>
                     <small>{release.release_type} · {formatFeedDate(release.release_date)}</small>
@@ -1874,12 +1894,18 @@ function SocialPage() {
 function ArtistDetailPage() {
   const { artistId } = useParams();
   const { user } = useAuth();
+  const setShellAccent = useContext(ShellAccentContext);
   const [artistData, setArtistData] = useState(null);
   const artistBannerUrl = artistData?.artist?.banner_url || artistData?.artist?.image_url || '';
 
   useEffect(() => {
     api.get(`/artists/${artistId}`).then((res) => setArtistData(res.data)).catch(console.error);
   }, [artistId]);
+
+  useEffect(() => {
+    setShellAccent(artistData?.artist?.accent_color || '');
+    return () => setShellAccent('');
+  }, [artistData?.artist?.accent_color, setShellAccent]);
 
   if (!artistData) return <div className="loading-panel">Carregando artista…</div>;
 
@@ -1936,7 +1962,12 @@ function ArtistDetailPage() {
         </div>
         <div className="artist-release-list">
           {artistData.releases.length ? artistData.releases.map((release, index) => (
-            <Link key={release.id} to={`/releases/${release.id}`} className="artist-release-row">
+            <Link
+              key={release.id}
+              to={`/releases/${release.id}`}
+              className="artist-release-row"
+              style={{ '--release-accent': release.accent_color || artistData.artist.accent_color || '#2563eb' }}
+            >
               <span className="artist-release-rank">{index + 1}</span>
               <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
               <span className="artist-release-copy">
@@ -1967,7 +1998,11 @@ function ReleaseCard({ release, showListen = false }) {
   ].filter((name, index, names) => name && names.indexOf(name) === index);
 
   return (
-    <Link to={`/releases/${release.id}`} className="release-card glass-panel">
+    <Link
+      to={`/releases/${release.id}`}
+      className="release-card glass-panel"
+      style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#2563eb' }}
+    >
       <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
       <div className="release-meta">
         <span>{release.release_type}</span>
@@ -2002,6 +2037,7 @@ function ArtistCard({ artist }) {
 function ReleaseDetailPage() {
   const { releaseId } = useParams();
   const { user } = useAuth();
+  const setShellAccent = useContext(ShellAccentContext);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [releaseInfo, setReleaseInfo] = useState(null);
@@ -2024,6 +2060,12 @@ function ReleaseDetailPage() {
   const releaseCoverUrl = releaseInfo?.release
     ? releaseInfo.release.cover_url || getReleaseFallbackImage(releaseInfo.release)
     : '';
+  const releaseAccent = releaseInfo?.release?.accent_color || releaseInfo?.release?.artist_accent_color || '';
+
+  useEffect(() => {
+    setShellAccent(releaseAccent);
+    return () => setShellAccent('');
+  }, [releaseAccent, setShellAccent]);
 
   const load = async () => {
     const releaseRes = await api.get(`/releases/${releaseId}`);
@@ -2218,7 +2260,7 @@ function ReleaseDetailPage() {
   return (
     <div
       className="content-stack release-view"
-      style={release.accent_color ? { '--release-accent': release.accent_color } : undefined}
+      style={{ '--release-accent': releaseAccent || '#2563eb' }}
     >
       <div className="release-detail glass-panel">
         <ArtworkBackdrop src={releaseCoverUrl} className="release-artwork-backdrop" />
@@ -3654,7 +3696,7 @@ function AdminPage() {
   const [isSearchingMusicBrainzArtists, setIsSearchingMusicBrainzArtists] = useState(false);
   const [isSearchingMusicBrainzReleases, setIsSearchingMusicBrainzReleases] = useState(false);
   const [loadingMusicBrainzReleaseId, setLoadingMusicBrainzReleaseId] = useState('');
-  const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+  const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '', accent_color: '' });
   const [releaseForm, setReleaseForm] = useState({
     title: '',
     artist_id: '',
@@ -3739,7 +3781,7 @@ function AdminPage() {
 
   const resetArtistForm = () => {
     setEditingArtistId(null);
-    setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+    setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '', accent_color: '' });
     setMusicBrainzArtistResults([]);
   };
 
@@ -4548,6 +4590,11 @@ function AdminPage() {
             placeholder="https://..."
             onImageUpload={uploadImage}
             onUploadStateChange={setIsReleaseCoverUploading}
+          />
+          <AccentPicker
+            label="Cor temática do lançamento"
+            value={releaseForm.accent_color}
+            onChange={(color) => setReleaseForm((current) => ({ ...current, accent_color: color }))}
           />
           <select value={releaseForm.release_type} onChange={(e) => setReleaseForm({ ...releaseForm, release_type: e.target.value })}>
             <option>Album</option>
