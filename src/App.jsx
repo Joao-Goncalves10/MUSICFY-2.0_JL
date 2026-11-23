@@ -58,12 +58,21 @@ const accentPalette = [
   ['Rosa', '#ec4899'], ['Magenta', '#d946ef'], ['Roxo', '#a855f7'],
   ['Violeta', '#8b5cf6'], ['Índigo', '#6366f1'], ['Grafite', '#64748b'],
   ['Turquesa', '#14b8a6'], ['Menta', '#34d399'], ['Oliva', '#65a30d'],
-  ['Mostarda', '#ca8a04'], ['Pêssego', '#fdba74'], ['Salmão', '#fb7185'],
+  ['Mostarda', '#ca8a04'], ['Pêssego', '#fdba74'], ['Salmão', '#fda4af'],
   ['Framboesa', '#be123c'], ['Borgonha', '#881337'], ['Lavanda', '#c4b5fd'],
   ['Lilás', '#c084fc'], ['Azul royal', '#1d4ed8'], ['Azul noite', '#1e3a8a'],
   ['Cobalto', '#1e40af'], ['Aqua', '#22d3ee'], ['Marinho', '#164e63'],
   ['Floresta', '#166534'], ['Musgo', '#4d7c0f'], ['Chocolate', '#78350f'],
   ['Púrpura', '#7e22ce'], ['Berinjela', '#581c87'], ['Prata', '#94a3b8'],
+  ['Azul celeste', '#38bdf8'], ['Azul glacial', '#7dd3fc'], ['Safira', '#1e3b8a'],
+  ['Verde jade', '#059669'], ['Verde pinho', '#14532d'], ['Verde água', '#2dd4bf'],
+  ['Amarelo sol', '#facc15'], ['Creme', '#fde047'], ['Tangerina', '#ea580c'],
+  ['Terracota', '#c2410c'], ['Carmesim', '#991b1b'], ['Vinho', '#7f1d1d'],
+  ['Rosa claro', '#f472b6'], ['Chiclete', '#db2777'], ['Fúcsia', '#c026d3'],
+  ['Orquídea', '#e879f9'], ['Ametista', '#9333ea'], ['Ameixa', '#4c1d95'],
+  ['Caramelo', '#b45309'], ['Cobre', '#9a3412'], ['Bronze', '#92400e'],
+  ['Areia', '#d6d3d1'], ['Cinza ardósia', '#475569'], ['Chumbo', '#334155'],
+  ['Obsidiana', '#1e293b'], ['Pérola', '#e2e8f0'],
 ];
 
 const AccentPicker = ({ label, value, onChange }) => (
