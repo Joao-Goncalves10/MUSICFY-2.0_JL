@@ -1017,56 +1017,79 @@ function HomePage() {
             <div className="home-feed-loading glass-panel" aria-live="polite">Carregando seu feed…</div>
           ) : visibleReviews.length ? (
             <div className="home-review-list">
-              {visibleReviews.map((review) => (
-                <article key={review.id} className="home-review-card glass-panel">
-                  <header className="home-review-author-row">
-                    <Link to={`/profile/${review.user_id}`} className="home-review-author">
-                      <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                      <span>
-                        <strong>{review.full_name || review.username}</strong>
-                        <small>@{review.username} · {formatFeedDate(review.created_at)}</small>
-                      </span>
-                    </Link>
-                    <RatingBadge value={review.rating} />
-                  </header>
+              {visibleReviews.map((review) => {
+  const accentColor =
+    review.accent_color ||
+    review.artist_accent_color ||
+    getArtistAccentColor({
+      name: review.artist_name,
+      primary_genre: review.release_genre,
+    });
 
-                  <Link
-                    to={`/releases/${review.release_id}`}
-                    className="home-review-release"
-                    style={{ '--release-accent': review.accent_color || review.artist_accent_color || '#31b6c5' }}
-                  >
-                    <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                    <span>
-                      <small>RESENHA DE</small>
-                      <strong>{review.release_title}</strong>
-                      <span>{review.artist_name}</span>
-                    </span>
-                    <span className="home-review-release-arrow" aria-hidden="true">↗</span>
-                  </Link>
+  return (
+    <article
+      key={review.id}
+      className="home-review-card glass-panel"
+      style={{ "--review-accent": accentColor, "--release-accent": accentColor }}
+    >
+      <header className="home-review-author-row">
+        <Link to={`/profile/${review.user_id}`} className="home-review-author">
+          <img
+            src={review.avatar_url || imagePlaceholder}
+            onError={(event) => handleImageError(event, imagePlaceholder)}
+            alt=""
+          />
+          <span>
+            <strong>{review.full_name || review.username}</strong>
+            <small>@{review.username} · {formatFeedDate(review.created_at)}</small>
+          </span>
+        </Link>
+        <RatingBadge value={review.rating} />
+      </header>
 
-                  {review.review_text ? (
-                    <p className="home-review-text">{review.review_text}</p>
-                  ) : (
-                    <p className="home-review-text is-empty">Compartilhou uma nota para este lançamento.</p>
-                  )}
-                  {review.gif_url && <ReviewGif src={review.gif_url} />}
+      <Link
+        to={`/releases/${review.release_id}`}
+        className="home-review-release"
+      >
+        <img
+          src={review.release_cover || imagePlaceholder}
+          onError={(event) => handleImageError(event, imagePlaceholder)}
+          alt=""
+        />
+        <span>
+          <small>RESENHA DE</small>
+          <strong>{review.release_title}</strong>
+          <span>{review.artist_name}</span>
+        </span>
+        <span className="home-review-release-arrow" aria-hidden="true">↗</span>
+      </Link>
 
-                  <footer className="home-review-actions">
-                    <ReviewLikeButton
-                      review={review}
-                      user={user}
-                      onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
-                    />
-                    <ReviewOwnerActions
-                      review={review}
-                      user={user}
-                      onUpdated={handleReviewUpdated}
-                      onDeleted={handleReviewDeleted}
-                    />
-                    <Link to={`/releases/${review.release_id}`} className="home-review-open-link">Abrir lançamento</Link>
-                  </footer>
-                </article>
-              ))}
+      {review.review_text ? (
+        <p className="home-review-text">{review.review_text}</p>
+      ) : (
+        <p className="home-review-text is-empty">Compartilhou uma nota para este lançamento.</p>
+      )}
+      {review.gif_url && <ReviewGif src={review.gif_url} />}
+
+      <footer className="home-review-actions">
+        <ReviewLikeButton
+          review={review}
+          user={user}
+          onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
+        />
+        <ReviewOwnerActions
+          review={review}
+          user={user}
+          onUpdated={handleReviewUpdated}
+          onDeleted={handleReviewDeleted}
+        />
+        <Link to={`/releases/${review.release_id}`} className="home-review-open-link">
+          Abrir lançamento
+        </Link>
+      </footer>
+    </article>
+  );
+})}
             </div>
           ) : (
             <div className="home-feed-empty glass-panel">
