@@ -70,6 +70,8 @@ const getReleaseFallbackImage = (release) => (
     : imagePlaceholder
 );
 
+const getArtistAccentColor = (artist) => artist?.accent_color || '#31b6c5';
+
 const accentPalette = [
   // Vermelhos & Rosas
   ['Salmão', '#fda4af'], ['Coral', '#fb7185'], ['Rosa claro', '#f472b6'],
@@ -182,7 +184,6 @@ function ArtworkBackdrop({ src, className }) {
     let currentFrame = 0;
     let timer;
     const image = new Image();
-    image.crossOrigin = 'anonymous';
 
     const drawFrame = (frameIndex) => {
       const canvas = canvases.current[frameIndex];
