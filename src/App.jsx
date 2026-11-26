@@ -268,6 +268,11 @@ const uploadImage = async (file) => {
   return new URL(response.data.url, apiOrigin).toString();
 };
 
+const resolveApiAssetUrl = (value) => {
+  const apiOrigin = new URL(api.defaults.baseURL, window.location.origin).origin;
+  return new URL(value, apiOrigin).toString();
+};
+
 const AuthContext = createContext();
 const ShellAccentContext = createContext(() => {});
 
@@ -395,6 +400,7 @@ function AppContent({ theme, onToggleTheme }) {
                 <Route path="/explore" element={<ExplorePage />} />
                 <Route path="/artists" element={<ArtistsPage />} />
                 <Route path="/social" element={<ProtectedRoute><SocialPage /></ProtectedRoute>} />
+                <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
                 <Route path="/community" element={<Navigate to="/social" replace />} />
                 <Route path="/artists/:artistId" element={<ArtistDetailPage />} />
                 <Route path="/releases/:releaseId" element={<ReleaseDetailPage />} />
@@ -439,6 +445,46 @@ function NavGlyph({ name }) {
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
       <path d={paths[name]} />
     </svg>
+  );
+}
+
+function ChatNavLink({ user }) {
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const loadUnreadCount = async () => {
+      try {
+        const response = await api.get('/messages/unread-count');
+        if (active) setUnreadCount(Number(response.data.unread_count || 0));
+      } catch (error) {
+        if (active) console.error('Unable to load unread message count:', error);
+      }
+    };
+
+    void loadUnreadCount();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadUnreadCount();
+    }, 30000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [user.id]);
+
+  return (
+    <NavLink
+      to="/chat"
+      className="chat-nav-trigger"
+      aria-label={unreadCount ? `Conversas, ${unreadCount} mensagens não lidas` : 'Conversas'}
+      title="Conversas"
+    >
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20.5 11.5a8 8 0 0 1-8 8H6l-3 2v-5.5a8 8 0 1 1 17.5-4.5Z" />
+        <path d="M8 11h8M8 14.5h5" />
+      </svg>
+      {unreadCount > 0 && <span className="chat-nav-badge">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+    </NavLink>
   );
 }
 
@@ -549,6 +595,7 @@ function Navbar({ theme, onToggleTheme }) {
         </button>
         {user ? (
           <>
+            {!user.is_suspended && <ChatNavLink user={user} />}
             <NotificationCenter />
             {user.is_suspended ? (
               <span className="account-link">
@@ -1096,6 +1143,7 @@ function HomePage() {
           user={user}
           onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
         />
+        <ShareReviewButton review={review} user={user} />
         <ReviewOwnerActions
           review={review}
           user={user}
@@ -1606,6 +1654,21 @@ function ReviewLikeButton({ review, user, onChange }) {
   );
 }
 
+function ShareReviewButton({ review, user }) {
+  if (!user || !isAccountApproved(user)) return null;
+
+  return (
+    <Link
+      className="review-share-link"
+      to={`/chat?review=${encodeURIComponent(review.id)}`}
+      aria-label={`Compartilhar resenha de ${review.release_title || 'lançamento'} no chat`}
+    >
+      <span aria-hidden="true">↗</span>
+      Compartilhar
+    </Link>
+  );
+}
+
 function ReviewOwnerActions({ review, user, onUpdated, onDeleted }) {
   const [isEditing, setIsEditing] = useState(false);
   const [rating, setRating] = useState(Number(review.rating));
@@ -1834,6 +1897,7 @@ function ReviewGif({ src }) {
 }
 
 function SocialPage() {
+  const { user } = useAuth();
   const [query, setQuery] = useState('');
   const [followFilter, setFollowFilter] = useState('all');
   const [userSort, setUserSort] = useState('name');
@@ -1938,19 +2002,24 @@ function SocialPage() {
                 <p>{person.bio || 'Ainda não adicionou uma biografia.'}</p>
                 <div className="social-user-footer">
                   <span>{Number(person.follower_count || 0)} seguidores</span>
-                  <FollowButton
-                    userId={person.id}
-                    initialFollowing={Boolean(person.followed_by_user)}
-                    onChange={(isFollowing) => setUsers((current) => current.map((item) => (
-                      String(item.id) === String(person.id)
-                        ? {
-                          ...item,
-                          follower_count: Math.max(0, Number(item.follower_count || 0) + (isFollowing ? 1 : -1)),
-                          followed_by_user: isFollowing,
-                        }
-                        : item
-                    )))}
-                  />
+                  <div className="social-user-actions">
+                    {user && isAccountApproved(user) && (
+                      <Link className="chat-contact-link" to={`/chat?with=${person.id}`}>Mensagem</Link>
+                    )}
+                    <FollowButton
+                      userId={person.id}
+                      initialFollowing={Boolean(person.followed_by_user)}
+                      onChange={(isFollowing) => setUsers((current) => current.map((item) => (
+                        String(item.id) === String(person.id)
+                          ? {
+                            ...item,
+                            follower_count: Math.max(0, Number(item.follower_count || 0) + (isFollowing ? 1 : -1)),
+                            followed_by_user: isFollowing,
+                          }
+                          : item
+                      )))}
+                    />
+                  </div>
                 </div>
               </article>
             ))}
@@ -1962,6 +2031,519 @@ function SocialPage() {
             <p>Tente buscar por outro nome ou usuário.</p>
           </div>
         ) : null}
+      </section>
+    </div>
+  );
+}
+
+function ChatPage() {
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [conversations, setConversations] = useState([]);
+  const [contactSearch, setContactSearch] = useState('');
+  const [contactResults, setContactResults] = useState([]);
+  const [activeContact, setActiveContact] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState('');
+  const [attachment, setAttachment] = useState(null);
+  const [attachmentError, setAttachmentError] = useState('');
+  const [sharedReview, setSharedReview] = useState(null);
+  const [shareReviewError, setShareReviewError] = useState('');
+  const [inboxError, setInboxError] = useState('');
+  const [threadError, setThreadError] = useState('');
+  const [isLoadingInbox, setIsLoadingInbox] = useState(true);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isLoadingReview, setIsLoadingReview] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const messageListRef = useRef(null);
+  const shouldStickToBottom = useRef(true);
+  const activeUserId = searchParams.get('with') || '';
+  const shareReviewId = searchParams.get('review') || '';
+  const canSendMessages = isAccountApproved(user);
+
+  const refreshConversations = useCallback(async () => {
+    const response = await api.get('/messages/conversations');
+    setConversations(response.data.conversations || []);
+    setInboxError('');
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const loadConversations = async () => {
+      try {
+        const response = await api.get('/messages/conversations');
+        if (active) {
+          setConversations(response.data.conversations || []);
+          setInboxError('');
+        }
+      } catch (error) {
+        if (active) setInboxError(error.response?.data?.error || 'Não foi possível carregar suas conversas.');
+      } finally {
+        if (active) setIsLoadingInbox(false);
+      }
+    };
+
+    void loadConversations();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadConversations();
+    }, 15000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    const query = contactSearch.trim();
+    if (query.length < 2) {
+      setContactResults([]);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.get('/users', { params: { q: query } });
+        if (active) setContactResults(response.data || []);
+      } catch (error) {
+        if (active) {
+          setContactResults([]);
+          setInboxError(error.response?.data?.error || 'Não foi possível buscar pessoas.');
+        }
+      }
+    }, 250);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [contactSearch]);
+
+  useEffect(() => {
+    if (!activeUserId) {
+      setActiveContact(null);
+      return undefined;
+    }
+
+    let active = true;
+    const knownContact = [...conversations, ...contactResults]
+      .find((contact) => String(contact.id) === String(activeUserId));
+    if (knownContact) {
+      setActiveContact(knownContact);
+    } else {
+      setActiveContact(null);
+      api.get(`/users/${activeUserId}`)
+        .then((response) => {
+          if (active) setActiveContact(response.data);
+        })
+        .catch((error) => {
+          if (active) setThreadError(error.response?.data?.error || 'Não foi possível abrir esta conversa.');
+        });
+    }
+    return () => { active = false; };
+  }, [activeUserId, conversations, contactResults]);
+
+  useEffect(() => {
+    if (!activeUserId) {
+      setMessages([]);
+      setIsLoadingMessages(false);
+      return undefined;
+    }
+
+    let active = true;
+    setThreadError('');
+    const loadMessages = async () => {
+      try {
+        const response = await api.get(`/messages/${activeUserId}`);
+        if (!active) return;
+        setMessages(response.data.messages || []);
+        setThreadError('');
+      } catch (error) {
+        if (active) setThreadError(error.response?.data?.error || 'Não foi possível carregar as mensagens.');
+      } finally {
+        if (active) setIsLoadingMessages(false);
+      }
+    };
+
+    setMessages([]);
+    setIsLoadingMessages(true);
+    void loadMessages();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadMessages();
+    }, 5000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [activeUserId]);
+
+  useEffect(() => {
+    if (!shareReviewId) {
+      setSharedReview(null);
+      setShareReviewError('');
+      setIsLoadingReview(false);
+      return undefined;
+    }
+
+    let active = true;
+    setSharedReview(null);
+    setShareReviewError('');
+    setIsLoadingReview(true);
+    api.get(`/reviews/${shareReviewId}/share-preview`)
+      .then((response) => {
+        if (active) setSharedReview(response.data);
+      })
+      .catch((error) => {
+        if (active) setShareReviewError(error.response?.data?.error || 'Não foi possível carregar esta resenha.');
+      })
+      .finally(() => {
+        if (active) setIsLoadingReview(false);
+      });
+
+    return () => { active = false; };
+  }, [shareReviewId]);
+
+  useEffect(() => () => {
+    if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+  }, [attachment]);
+
+  useLayoutEffect(() => {
+    const messageList = messageListRef.current;
+    if (messageList && shouldStickToBottom.current) {
+      messageList.scrollTop = messageList.scrollHeight;
+    }
+  }, [messages]);
+
+  const selectContact = (contact) => {
+    setActiveContact(contact);
+    setContactSearch('');
+    setContactResults([]);
+    setThreadError('');
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.set('with', String(contact.id));
+    setSearchParams(nextParams);
+  };
+
+  const closeConversation = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('with');
+    setSearchParams(nextParams);
+  };
+
+  const removeSharedReview = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('review');
+    setSearchParams(nextParams);
+  };
+
+  const handleAttachmentChange = (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    const acceptedTypes = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+    if (!acceptedTypes.has(file.type)) {
+      setAttachmentError('Escolha uma imagem JPG, PNG, GIF ou WebP.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setAttachmentError('A imagem deve ter no máximo 10 MB.');
+      return;
+    }
+
+    setAttachmentError('');
+    setAttachment({ file, previewUrl: URL.createObjectURL(file) });
+  };
+
+  const sendMessage = async (event) => {
+    event.preventDefault();
+    const body = draft.trim();
+    if (!activeUserId || (!body && !attachment && !sharedReview) || !canSendMessages || isSending) return;
+
+    setIsSending(true);
+    setThreadError('');
+    try {
+      const imageUrl = attachment ? await uploadImage(attachment.file) : null;
+      await api.post(`/messages/${activeUserId}`, {
+        body,
+        image_url: imageUrl,
+        review_id: sharedReview?.id || null,
+      });
+    } catch (error) {
+      setThreadError(error.response?.data?.error || 'Não foi possível enviar a mensagem.');
+      setIsSending(false);
+      return;
+    }
+
+    setDraft('');
+    setAttachment(null);
+    if (sharedReview) removeSharedReview();
+    setIsSending(false);
+
+    try {
+      const [messageResponse] = await Promise.all([
+        api.get(`/messages/${activeUserId}`),
+        refreshConversations(),
+      ]);
+      if (String(searchParams.get('with')) === String(activeUserId)) {
+        setMessages(messageResponse.data.messages || []);
+      }
+      setThreadError('');
+    } catch (error) {
+      setThreadError(error.response?.data?.error || 'A mensagem foi enviada, mas não foi possível atualizar a conversa.');
+    }
+  };
+
+  const selectedContact = activeContact
+    || conversations.find((contact) => String(contact.id) === String(activeUserId))
+    || contactResults.find((contact) => String(contact.id) === String(activeUserId));
+
+  const formatMessageTime = (value) => {
+    if (!value) return '';
+    const parsedDate = new Date(String(value).replace(' ', 'T'));
+    return Number.isNaN(parsedDate.getTime())
+      ? String(value)
+      : parsedDate.toLocaleString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  };
+
+  return (
+    <div className="content-stack chat-page">
+      <header className="chat-page-heading">
+        <div>
+          <p className="eyebrow">Conecte-se pela música</p>
+          <h1>Mensagens</h1>
+        </div>
+        <Link to="/social" className="secondary-btn">Encontrar pessoas</Link>
+      </header>
+
+      <section className={`chat-shell glass-panel${selectedContact ? ' has-active-thread' : ''}`} aria-label="Chat privado">
+        <aside className="chat-inbox">
+          <div className="chat-inbox-heading">
+            <h2>Conversas</h2>
+            <span aria-label={`${conversations.length} conversas`}>{conversations.length}</span>
+          </div>
+          <label className="chat-contact-search">
+            <span className="sr-only">Buscar pessoas para conversar</span>
+            <input
+              type="search"
+              value={contactSearch}
+              onChange={(event) => setContactSearch(event.target.value)}
+              placeholder="Buscar pessoas"
+              maxLength={100}
+            />
+          </label>
+          {inboxError && <p className="chat-inline-error" role="alert">{inboxError}</p>}
+          <div className="chat-contact-list">
+            {contactSearch.trim().length >= 2 ? (
+              contactResults.length ? contactResults.map((contact) => (
+                <button
+                  type="button"
+                  key={contact.id}
+                  className={`chat-contact-option${String(activeUserId) === String(contact.id) ? ' is-active' : ''}`}
+                  onClick={() => selectContact(contact)}
+                >
+                  <img src={contact.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                  <span>
+                    <strong>{contact.full_name || contact.username}</strong>
+                    <small>@{contact.username} · Nova conversa</small>
+                  </span>
+                </button>
+              )) : (
+                <p className="chat-inbox-empty">
+                  {inboxError ? 'A busca não foi concluída.' : 'Nenhuma pessoa encontrada.'}
+                </p>
+              )
+            ) : isLoadingInbox ? (
+              <p className="chat-inbox-empty">Carregando conversas…</p>
+            ) : conversations.length ? conversations.map((contact) => {
+              const lastMessagePreview = contact.last_message_body
+                || (contact.last_message_image_id ? 'Imagem ou GIF' : '')
+                || (contact.last_message_review_id ? 'Resenha compartilhada' : 'Nova conversa');
+              return (
+                <button
+                  type="button"
+                  key={contact.id}
+                  className={`chat-contact-option${String(activeUserId) === String(contact.id) ? ' is-active' : ''}`}
+                  onClick={() => selectContact(contact)}
+                >
+                  <img src={contact.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                  <span>
+                    <strong>{contact.full_name || contact.username}</strong>
+                    <small>
+                      {Number(contact.last_message_is_mine) ? 'Você: ' : ''}
+                      {lastMessagePreview}
+                    </small>
+                  </span>
+                  {Number(contact.unread_count) > 0 && (
+                    <span className="chat-unread-pill">{Number(contact.unread_count) > 99 ? '99+' : contact.unread_count}</span>
+                  )}
+                </button>
+              );
+            }) : (
+              <p className="chat-inbox-empty">Busque alguém para começar uma conversa.</p>
+            )}
+          </div>
+        </aside>
+
+        <section className="chat-thread" aria-label={selectedContact ? `Conversa com ${selectedContact.full_name || selectedContact.username}` : 'Conversa'}>
+          {selectedContact ? (
+            <>
+              <header className="chat-thread-header">
+                <button type="button" className="chat-back-button" onClick={closeConversation} aria-label="Voltar para conversas">
+                  ←
+                </button>
+                <img src={selectedContact.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                <span>
+                  <strong>{selectedContact.full_name || selectedContact.username}</strong>
+                  <small>@{selectedContact.username}</small>
+                </span>
+                <Link to={`/profile/${selectedContact.id}`} className="chat-profile-link">Perfil</Link>
+              </header>
+
+              <div
+                className="chat-message-list"
+                ref={messageListRef}
+                onScroll={(event) => {
+                  const element = event.currentTarget;
+                  shouldStickToBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+                }}
+                aria-live="polite"
+              >
+                {isLoadingMessages && !messages.length ? (
+                  <p className="chat-thread-empty">Carregando mensagens…</p>
+                ) : messages.length ? messages.map((message) => {
+                  const isMine = Number(message.sender_id) === Number(user.id);
+                  return (
+                    <article key={message.id} className={`chat-message${isMine ? ' is-mine' : ''}`}>
+                      {!isMine && <small className="chat-message-author">{message.sender_full_name || message.sender_username}</small>}
+                      {message.body && <p className="chat-message-text">{message.body}</p>}
+                      {message.image_url && (
+                        <img
+                          className="chat-message-image"
+                          src={resolveApiAssetUrl(message.image_url)}
+                          alt={`Imagem ou GIF enviado por ${message.sender_full_name || message.sender_username}`}
+                          loading="lazy"
+                        />
+                      )}
+                      {message.shared_review_id && (
+                        <Link className="chat-shared-review" to={`/releases/${message.shared_review_release_id}`}>
+                          <img
+                            src={message.shared_review_release_cover || imagePlaceholder}
+                            onError={(event) => handleImageError(event, imagePlaceholder)}
+                            alt=""
+                          />
+                          <span>
+                            <small>RESENHA COMPARTILHADA · {message.shared_review_rating}/10</small>
+                            <strong>{message.shared_review_release_title}</strong>
+                            <span>{message.shared_review_artist_name}</span>
+                            <p>{message.shared_review_text || 'Compartilhou uma nota para este lançamento.'}</p>
+                            <small>Por {message.shared_review_full_name || message.shared_review_username}</small>
+                          </span>
+                        </Link>
+                      )}
+                      {message.shared_review_gif_url && (
+                        <ReviewGif src={message.shared_review_gif_url} />
+                      )}
+                      <time>{formatMessageTime(message.created_at)}</time>
+                    </article>
+                  );
+                }) : (
+                  <div className="chat-thread-empty">
+                    <span aria-hidden="true">✦</span>
+                    <strong>Comece a conversa</strong>
+                    <p>Compartilhe uma descoberta musical ou mande um oi.</p>
+                  </div>
+                )}
+              </div>
+
+              {threadError && <p className="chat-thread-error" role="alert">{threadError}</p>}
+              {shareReviewError && <p className="chat-thread-error" role="alert">{shareReviewError}</p>}
+              {attachmentError && <p className="chat-thread-error" role="alert">{attachmentError}</p>}
+
+              {shareReviewId && (
+                <div className="chat-composer-preview">
+                  {isLoadingReview ? (
+                    <span>Carregando resenha para compartilhar…</span>
+                  ) : sharedReview ? (
+                    <div className="chat-share-review-preview">
+                      <img src={sharedReview.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                      <span>
+                        <strong>{sharedReview.release_title}</strong>
+                        <small>{sharedReview.artist_name} · nota {sharedReview.rating}/10</small>
+                      </span>
+                    </div>
+                  ) : null}
+                  <button type="button" className="ghost-btn compact-btn" onClick={removeSharedReview} aria-label="Remover resenha anexada">
+                    ×
+                  </button>
+                </div>
+              )}
+
+              {attachment && (
+                <div className="chat-composer-preview">
+                  <img className="chat-attachment-preview" src={attachment.previewUrl} alt="Prévia da imagem ou GIF anexado" />
+                  <span>{attachment.file.name}</span>
+                  <button
+                    type="button"
+                    className="ghost-btn compact-btn"
+                    onClick={() => { setAttachment(null); setAttachmentError(''); }}
+                    aria-label="Remover imagem anexada"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+
+              {canSendMessages ? (
+                <form className="chat-composer" onSubmit={sendMessage}>
+                  <textarea
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    placeholder="Escreva uma mensagem…"
+                    maxLength={2000}
+                    rows={2}
+                    aria-label="Escreva uma mensagem"
+                    disabled={isSending}
+                  />
+                  <div className="chat-composer-footer">
+                    <div className="chat-composer-tools">
+                      <label className="chat-attach-button">
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/gif,image/webp"
+                          onChange={handleAttachmentChange}
+                          disabled={isSending}
+                        />
+                        <span aria-hidden="true">▧</span>
+                        Imagem / GIF
+                      </label>
+                      <span className="chat-character-count">{draft.length}/2000</span>
+                    </div>
+                    <button
+                      type="submit"
+                      className="chat-send-button"
+                      disabled={isSending || isLoadingReview || (!draft.trim() && !attachment && !sharedReview)}
+                    >
+                      {isSending ? 'Enviando…' : 'Enviar'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <p className="chat-readonly-notice" role="status">Sua conta ainda aguarda aprovação. Você pode ler, mas ainda não pode enviar mensagens.</p>
+              )}
+            </>
+          ) : (
+            <div className="chat-welcome">
+              <span className="chat-welcome-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20.5 11.5a8 8 0 0 1-8 8H6l-3 2v-5.5a8 8 0 1 1 17.5-4.5Z" />
+                  <path d="M8 11h8M8 14.5h5" />
+                </svg>
+              </span>
+              <h2>Suas conversas, no seu ritmo</h2>
+              <p>Escolha uma conversa ou busque alguém para compartilhar resenhas, imagens e GIFs.</p>
+            </div>
+          )}
+        </section>
       </section>
     </div>
   );
@@ -2832,6 +3414,7 @@ function ReleaseDetailPage() {
                   user={user}
                   onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
                 />
+                <ShareReviewButton review={review} user={user} />
                 <ReviewOwnerActions
                   review={review}
                   user={user}
@@ -3456,6 +4039,7 @@ function ProfilePage() {
                     {review.gif_url && <ReviewGif src={review.gif_url} />}
                     <small>{review.created_at}</small>
                     <ReviewLikeButton review={review} user={user} />
+                    <ShareReviewButton review={review} user={user} />
                     <ReviewOwnerActions
                       review={review}
                       user={user}

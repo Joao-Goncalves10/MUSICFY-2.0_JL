@@ -27,6 +27,7 @@ This combination keeps the project lightweight while still providing a real pers
 - Admin-managed home carousel for multiple releases, with controls to create, edit, reorder, and remove banners and descriptions; slides rotate automatically every five seconds and can be paused
 - Home sidebar showing active releases from the previous two months
 - Public user profiles with profile discovery, follow/unfollow, and follower/following lists
+- Private user-to-user chats with unread message badges, image/GIF attachments, and shareable review cards
 - Artist follows and in-app notifications for new followers, review likes, and new releases from followed artists or pre-saved releases
 - User profile page with reviews, playlists, and favorite tracks
 - Playlists with public detail pages, custom descriptions and covers, track add/remove/reordering, and owner-only edit/delete controls
