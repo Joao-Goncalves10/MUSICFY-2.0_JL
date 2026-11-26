@@ -11,8 +11,6 @@ const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
 });
 
-const PlayerContext = createContext(null);
-
 const getYoutubeVideoId = (value) => {
   try {
     const url = new URL(value.startsWith('http') ? value : `https://${value}`);
@@ -353,7 +351,6 @@ function ProtectedRoute({ admin = false, children }) {
 
 export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem('musicfy-theme') === 'light' ? 'light' : 'dark');
-  const [playerTrack, setPlayerTrack] = useState(null);
 
   useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -362,13 +359,10 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <PlayerContext.Provider value={setPlayerTrack}>
-        <AppContent
-          theme={theme}
-          onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
-        />
-        {playerTrack && <YoutubeMiniPlayer track={playerTrack} onClose={() => setPlayerTrack(null)} />}
-      </PlayerContext.Provider>
+      <AppContent
+        theme={theme}
+        onToggleTheme={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}
+      />
     </AuthProvider>
   );
 }
@@ -428,30 +422,6 @@ function AccountAccessGate({ children }) {
       <h1>Seu perfil está oculto</h1>
       <p>Abra as notificações no topo da página para ver o aviso da equipe. Enquanto isso, o restante da conta ficará indisponível.</p>
     </section>
-  );
-}
-
-function YoutubeMiniPlayer({ track, onClose }) {
-  return (
-    <aside className="youtube-mini-player" aria-label="Miniplayer do YouTube">
-      <div className="youtube-mini-player-header">
-        <div className="youtube-mini-player-info">
-          <strong>{track.title}</strong>
-          <span>{track.artistName} · {track.releaseTitle}</span>
-        </div>
-        <button type="button" className="youtube-mini-player-close" onClick={onClose} aria-label="Fechar miniplayer">
-          ×
-        </button>
-      </div>
-      <iframe
-        key={track.videoId}
-        src={`https://www.youtube-nocookie.com/embed/${track.videoId}?autoplay=1&playsinline=1`}
-        title={`Vídeo de ${track.title}`}
-        allow="autoplay; encrypted-media; picture-in-picture; web-share"
-        referrerPolicy="strict-origin-when-cross-origin"
-        allowFullScreen
-      />
-    </aside>
   );
 }
 
@@ -2143,7 +2113,6 @@ function ArtistCard({ artist }) {
 function ReleaseDetailPage() {
   const { releaseId } = useParams();
   const { user } = useAuth();
-  const setPlayerTrack = useContext(PlayerContext);
   const setShellAccent = useContext(ShellAccentContext);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2164,6 +2133,8 @@ function ReleaseDetailPage() {
   const [favoriteTrackIds, setFavoriteTrackIds] = useState([]);
   const [openLyricsTrackId, setOpenLyricsTrackId] = useState(null);
   const [lyricsDisplayMode, setLyricsDisplayMode] = useState('lyrics');
+  const [activeVideoTrackId, setActiveVideoTrackId] = useState(null);
+  const videoSectionRef = useRef(null);
   const releaseCoverUrl = releaseInfo?.release
     ? releaseInfo.release.cover_url || getReleaseFallbackImage(releaseInfo.release)
     : '';
@@ -2339,14 +2310,13 @@ function ReleaseDetailPage() {
   const { release, tracks, reviews } = releaseInfo;
   const canWrite = isAccountApproved(user);
   const selectedLyricsTrack = tracks.find((track) => track.id === openLyricsTrackId);
+  const videoTracks = tracks.filter((track) => getYoutubeVideoId(track.youtube_url || ''));
+  const activeVideoTrack = videoTracks.find((track) => track.id === activeVideoTrackId) || videoTracks[0];
   const playTrack = (track) => {
-    const videoId = getYoutubeVideoId(track.youtube_url || '');
-    if (!videoId) return;
-    setPlayerTrack({
-      videoId,
-      title: track.title,
-      artistName: release.artist_name || 'Artista',
-      releaseTitle: release.title,
+    if (!getYoutubeVideoId(track.youtube_url || '')) return;
+    setActiveVideoTrackId(track.id);
+    window.requestAnimationFrame(() => {
+      videoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
   };
   const isFutureRelease = new Date(release.release_date) > new Date();
@@ -2419,6 +2389,15 @@ function ReleaseDetailPage() {
           </p>
 
           <div className="action-row">
+            {videoTracks.length > 0 && (
+              <button
+                type="button"
+                className="secondary-btn release-videos-link"
+                onClick={() => videoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              >
+                ▶ Ver videoclipes <span>{videoTracks.length}</span>
+              </button>
+            )}
             {canWrite && (
               <button className="primary-btn" onClick={togglePreSave} type="button">
                 {preSaved ? 'Remover pré-save' : isFutureRelease ? 'Pré-salvar lançamento' : 'Salvar lançamento'}
@@ -2452,6 +2431,64 @@ function ReleaseDetailPage() {
           {deleteError && <p className="error-text" role="alert">{deleteError}</p>}
         </div>
       </div>
+
+      {activeVideoTrack && (
+        <section className="album-videos-section" ref={videoSectionRef} aria-labelledby="album-videos-title">
+          <div className="album-videos-heading">
+            <div>
+              <p className="eyebrow">Assista ao álbum</p>
+              <h2 id="album-videos-title">Videoclipes</h2>
+            </div>
+            <span>{videoTracks.length} {videoTracks.length === 1 ? 'vídeo' : 'vídeos'}</span>
+          </div>
+          <div className="album-videos-player-layout">
+            <div className="album-video-player">
+              <div className="album-video-frame">
+                <iframe
+                  key={getYoutubeVideoId(activeVideoTrack.youtube_url)}
+                  src={`https://www.youtube-nocookie.com/embed/${getYoutubeVideoId(activeVideoTrack.youtube_url)}?playsinline=1&rel=0`}
+                  title={`${activeVideoTrack.title} — ${release.title}`}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  allowFullScreen
+                />
+              </div>
+              <div className="album-video-caption">
+                <div>
+                  <span>Clipe selecionado</span>
+                  <h3>{activeVideoTrack.title}</h3>
+                  <p>{release.artist_name} · {release.title}</p>
+                </div>
+                <span className="album-video-track-number">Faixa {activeVideoTrack.track_number}</span>
+              </div>
+            </div>
+            <div className="album-video-list" aria-label="Videoclipes deste álbum">
+              {videoTracks.map((track) => {
+                const videoId = getYoutubeVideoId(track.youtube_url);
+                const isActive = track.id === activeVideoTrack.id;
+                return (
+                  <button
+                    key={track.id}
+                    type="button"
+                    className={`album-video-option${isActive ? ' is-active' : ''}`}
+                    onClick={() => setActiveVideoTrackId(track.id)}
+                    aria-pressed={isActive}
+                  >
+                    <span className="album-video-thumbnail">
+                      <img src={`https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`} alt="" loading="lazy" />
+                      <span aria-hidden="true">▶</span>
+                    </span>
+                    <span className="album-video-option-copy">
+                      <strong>{track.title}</strong>
+                      <small>Faixa {track.track_number}{track.duration ? ` · ${track.duration}` : ''}</small>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="subsection album-tracklist-panel">
         <div className="section-heading-row">
@@ -2496,11 +2533,11 @@ function ReleaseDetailPage() {
                     {track.youtube_url && (
                       getYoutubeVideoId(track.youtube_url) ? (
                         <button type="button" onClick={() => playTrack(track)} className="track-link-btn">
-                          Ouvir
+                          Assistir clipe
                         </button>
                       ) : (
                         <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">
-                          Ouvir
+                          Abrir link
                         </a>
                       )
                     )}
@@ -2580,11 +2617,11 @@ function ReleaseDetailPage() {
               {selectedLyricsTrack.youtube_url && (
                 getYoutubeVideoId(selectedLyricsTrack.youtube_url) ? (
                   <button type="button" className="lyrics-viewer-listen" onClick={() => playTrack(selectedLyricsTrack)}>
-                    Ouvir faixa <span aria-hidden="true">↗</span>
+                    Assistir clipe <span aria-hidden="true">↗</span>
                   </button>
                 ) : (
                   <a className="lyrics-viewer-listen" href={selectedLyricsTrack.youtube_url} target="_blank" rel="noreferrer">
-                    Ouvir faixa <span aria-hidden="true">↗</span>
+                    Abrir link <span aria-hidden="true">↗</span>
                   </a>
                 )
               )}
