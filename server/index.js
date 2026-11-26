@@ -1812,19 +1812,24 @@ app.get('/api/messages/conversations', requireAuth, async (req, res) => {
         WHERE unread.sender_id = u.id AND unread.recipient_id = ? AND unread.read_at IS NULL
       ) AS unread_count
     FROM (
-      SELECT
-        CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS other_user_id,
-        MAX(id) AS last_message_id
-      FROM direct_messages
-      WHERE sender_id = ? OR recipient_id = ?
-      GROUP BY CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END
+      SELECT other_user_id, MAX(id) AS last_message_id
+      FROM (
+        SELECT recipient_id AS other_user_id, id
+        FROM direct_messages
+        WHERE sender_id = ?
+        UNION ALL
+        SELECT sender_id AS other_user_id, id
+        FROM direct_messages
+        WHERE recipient_id = ?
+      ) dm_peers
+      GROUP BY other_user_id
     ) latest
     JOIN direct_messages m ON m.id = latest.last_message_id
     JOIN users u ON u.id = latest.other_user_id
     WHERE u.is_suspended = 0 AND u.is_approved = 1
     ORDER BY m.id DESC
     LIMIT 100
-  `, [userId, userId, userId, userId, userId, userId]);
+  `, [userId, userId, userId, userId]);
   return res.json({ conversations });
 });
 
