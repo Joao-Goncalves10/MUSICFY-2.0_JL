@@ -3181,7 +3181,7 @@ function ReleaseDetailPage() {
             if (event.target === event.currentTarget) setOpenLyricsTrackId(null);
           }}
         >
-          <section className="lyrics-viewer" role="dialog" aria-modal="true" aria-labelledby="lyrics-viewer-title">
+          <section className="lyrics-viewer" role="dialog" aria-modal="true" aria-labelledby="lyrics-viewer-title" style={{ "--release-accent": release?.accent_color || release?.artist_accent_color || "#31b6c5", }}>
             <button type="button" className="lyrics-viewer-close" onClick={() => setOpenLyricsTrackId(null)} aria-label="Fechar visualização da letra" autoFocus>
               <span aria-hidden="true">×</span>
             </button>
@@ -4446,6 +4446,13 @@ function AdminPage() {
   const [isSearchingMusicBrainzArtists, setIsSearchingMusicBrainzArtists] = useState(false);
   const [isSearchingMusicBrainzReleases, setIsSearchingMusicBrainzReleases] = useState(false);
   const [loadingMusicBrainzReleaseId, setLoadingMusicBrainzReleaseId] = useState('');
+  const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+  const [musicBrainzArtistResults, setMusicBrainzArtistResults] = useState([]);
+  const [musicBrainzReleaseResults, setMusicBrainzReleaseResults] = useState([]);
+  const [musicBrainzReleaseQuery, setMusicBrainzReleaseQuery] = useState('');
+  const [isSearchingMusicBrainzArtists, setIsSearchingMusicBrainzArtists] = useState(false);
+  const [isSearchingMusicBrainzReleases, setIsSearchingMusicBrainzReleases] = useState(false);
+  const [loadingMusicBrainzReleaseId, setLoadingMusicBrainzReleaseId] = useState('');
   const [artistForm, setArtistForm] = useState({ name: '', bio: '', image_url: '', banner_url: '', genres: '', accent_color: '' });
   const [releaseForm, setReleaseForm] = useState({
     title: '',
@@ -4531,6 +4538,107 @@ function AdminPage() {
 
   const resetArtistForm = () => {
     setEditingArtistId(null);
+    setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '' });
+    setMusicBrainzArtistResults([]);
+  };
+
+  const searchMusicBrainzArtists = async () => {
+    const query = artistForm.name.trim();
+    if (!query) {
+      setAdminError('Informe o nome do artista para buscar no MusicBrainz.');
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setMusicBrainzArtistResults([]);
+    setIsSearchingMusicBrainzArtists(true);
+    try {
+      const response = await api.get('/admin/musicbrainz/artists', { params: { q: query } });
+      setMusicBrainzArtistResults(response.data || []);
+      if (!response.data?.length) setAdminNotice('Nenhum artista encontrado no MusicBrainz.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível consultar o MusicBrainz agora.');
+    } finally {
+      setIsSearchingMusicBrainzArtists(false);
+    }
+  };
+
+  const searchMusicBrainzReleases = async () => {
+    const query = musicBrainzReleaseQuery.trim();
+    if (!releaseForm.artist_name) {
+      setAdminError('Selecione um artista cadastrado antes de buscar lançamentos.');
+      return;
+    }
+    if (!query) {
+      setAdminError('Informe o título do lançamento para buscar no MusicBrainz.');
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setMusicBrainzReleaseResults([]);
+    setIsSearchingMusicBrainzReleases(true);
+    try {
+      const response = await api.get('/admin/musicbrainz/releases', {
+        params: { q: query, artist: releaseForm.artist_name },
+      });
+      setMusicBrainzReleaseResults(response.data || []);
+      if (!response.data?.length) setAdminNotice('Nenhum lançamento encontrado no MusicBrainz para esse artista e título.');
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível consultar o MusicBrainz agora.');
+    } finally {
+      setIsSearchingMusicBrainzReleases(false);
+    }
+  };
+
+  const importMusicBrainzRelease = async (release) => {
+    const hasTrackDetails = releaseForm.tracks.some((track) => (
+      track.title || track.youtube_url || track.lyrics || track.translation
+    ));
+    if (hasTrackDetails && !window.confirm('Importar esta lista substituirá as faixas preenchidas no formulário. Deseja continuar?')) {
+      return;
+    }
+
+    setAdminError('');
+    setAdminNotice('');
+    setLoadingMusicBrainzReleaseId(release.id);
+    try {
+      const response = await api.get(`/admin/musicbrainz/releases/${release.id}`);
+      const importedTracks = (response.data.tracks || []).map((track) => ({
+        title: track.title || '',
+        duration: track.duration || '',
+        explicit: false,
+        youtube_url: '',
+        lyrics: '',
+        translation: '',
+      }));
+      const primaryType = release.type === 'EP' || release.type === 'Single' ? release.type : 'Album';
+      setReleaseForm((current) => ({
+        ...current,
+        title: release.title,
+        release_type: primaryType,
+        release_date: response.data.release_date || '',
+        cover_url: response.data.cover_url || current.cover_url,
+        genre: [...new Map(
+          [...splitGenreNames(current.genre), ...(release.genres || [])]
+            .map((genre) => [normalizeGenre(genre), genre])
+        ).values()].join(', '),
+        tracks: importedTracks.length ? importedTracks : current.tracks,
+      }));
+      setGenreOptions((current) => mergeGenreOptions([...current, ...(release.genres || [])]));
+      setMusicBrainzReleaseQuery(release.title);
+      const dateNotice = !response.data.release_date
+        ? ' O MusicBrainz não forneceu uma data completa; informe-a antes de salvar.'
+        : '';
+      setAdminNotice(importedTracks.length
+        ? `Dados e faixas importados. Revise tudo antes de salvar; biografia, imagem do artista, letras e links não são fornecidos pelo MusicBrainz.${dateNotice}`
+        : `Dados importados, mas o MusicBrainz não forneceu uma lista de faixas para este lançamento.${dateNotice}`);
+    } catch (error) {
+      reportAdminError(error, 'Não foi possível carregar as faixas no MusicBrainz agora.');
+    } finally {
+      setLoadingMusicBrainzReleaseId('');
+    }
     setArtistForm({ name: '', bio: '', image_url: '', banner_url: '', genres: '', accent_color: '' });
     setMusicBrainzArtistResults([]);
   };
