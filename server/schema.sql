@@ -252,6 +252,22 @@ CREATE TABLE IF NOT EXISTS playlist_tracks (
   CONSTRAINT fk_playlist_tracks_track FOREIGN KEY (track_id) REFERENCES tracks(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS playlist_collaborators (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  playlist_id BIGINT UNSIGNED NOT NULL,
+  user_id BIGINT UNSIGNED NOT NULL,
+  invited_by_user_id BIGINT UNSIGNED NULL,
+  status VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  responded_at TIMESTAMP NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_playlist_collaborators_playlist_user (playlist_id, user_id),
+  KEY idx_playlist_collaborators_user_status (user_id, status),
+  CONSTRAINT fk_playlist_collaborators_playlist FOREIGN KEY (playlist_id) REFERENCES playlists(id) ON DELETE CASCADE,
+  CONSTRAINT fk_playlist_collaborators_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_playlist_collaborators_invited_by FOREIGN KEY (invited_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS favorites (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   user_id BIGINT UNSIGNED NOT NULL,
@@ -283,11 +299,33 @@ CREATE TABLE IF NOT EXISTS notifications (
   actor_user_id BIGINT UNSIGNED NULL,
   message TEXT NOT NULL,
   link_url VARCHAR(512) NULL,
+  playlist_collaborator_id BIGINT UNSIGNED NULL,
   read_status TINYINT(1) NOT NULL DEFAULT 0,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_notifications_user_created (user_id, created_at),
-  CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id)
+  KEY idx_notifications_playlist_collaborator (playlist_collaborator_id),
+  CONSTRAINT fk_notifications_user FOREIGN KEY (user_id) REFERENCES users(id),
+  CONSTRAINT fk_notifications_playlist_collaborator FOREIGN KEY (playlist_collaborator_id) REFERENCES playlist_collaborators(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS direct_messages (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  sender_id BIGINT UNSIGNED NOT NULL,
+  recipient_id BIGINT UNSIGNED NOT NULL,
+  body VARCHAR(2000) NULL,
+  image_asset_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
+  review_id BIGINT UNSIGNED NULL,
+  read_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_direct_messages_sender_recipient (sender_id, recipient_id, id),
+  KEY idx_direct_messages_recipient_sender (recipient_id, sender_id, id),
+  KEY idx_direct_messages_unread (recipient_id, read_at, id),
+  CONSTRAINT fk_direct_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_direct_messages_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_direct_messages_image FOREIGN KEY (image_asset_id) REFERENCES image_assets(id) ON DELETE SET NULL,
+  CONSTRAINT fk_direct_messages_review FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS featured_releases (
