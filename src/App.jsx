@@ -706,6 +706,29 @@ function NotificationCenter() {
     if (notification.link_url) navigate(notification.link_url);
   };
 
+  const respondToPlaylistInvite = async (notification, decision) => {
+    try {
+      const response = await api.post(`/notifications/${notification.id}/playlist-invite`, { decision });
+      const resolvedStatus = response.data.status;
+      setNotifications((current) => current.map((item) => (
+        item.id === notification.id
+          ? {
+            ...item,
+            read_status: 1,
+            playlist_invite_status: resolvedStatus,
+            message: resolvedStatus === 'ACCEPTED'
+              ? `Você aceitou o convite para colaborar na playlist “${response.data.playlist_name || item.playlist_name}”.`
+              : `Você recusou o convite para colaborar na playlist “${response.data.playlist_name || item.playlist_name}”.`,
+          }
+          : item
+      )));
+      if (!notification.read_status) setUnreadCount((count) => Math.max(0, count - 1));
+      setError('');
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Não foi possível responder ao convite.');
+    }
+  };
+
   const getNotificationIcon = (type) => {
     if (type === 'USER_FOLLOW') return '♙';
     if (type === 'REVIEW_LIKE') return '♥';
@@ -713,6 +736,7 @@ function NotificationCenter() {
     if (type === 'REVIEW_REMOVED') return '×';
     if (type === 'ACCOUNT_SUSPENDED') return '!';
     if (type === 'ACCOUNT_RESTORED') return '✓';
+    if (type === 'PLAYLIST_INVITE') return '♫';
     return '•';
   };
 
@@ -753,21 +777,38 @@ function NotificationCenter() {
           {notifications.length ? (
             <div className="notification-list">
               {notifications.map((notification) => (
-                <button
-                  type="button"
+                <article
                   key={notification.id}
                   className={`notification-item${notification.read_status ? '' : ' is-unread'}`}
-                  onClick={() => void openNotification(notification)}
                 >
-                  <span className={`notification-icon is-${String(notification.type || 'general').toLowerCase()}`} aria-hidden="true">
-                    {getNotificationIcon(notification.type)}
-                  </span>
-                  <span className="notification-copy">
-                    <span>{notification.message}</span>
-                    <small>{formatFeedDate(notification.created_at)}</small>
-                  </span>
-                  {!notification.read_status && <span className="notification-unread-dot" aria-label="Não lida" />}
-                </button>
+                  <button
+                    type="button"
+                    className="notification-item-main"
+                    onClick={() => void openNotification(notification)}
+                  >
+                    <span className={`notification-icon is-${String(notification.type || 'general').toLowerCase()}`} aria-hidden="true">
+                      {getNotificationIcon(notification.type)}
+                    </span>
+                    <span className="notification-copy">
+                      {notification.type === 'PLAYLIST_INVITE' && notification.playlist_invite_status === 'PENDING' ? (
+                        <span>
+                          <strong>{notification.actor_full_name || notification.actor_username || 'Alguém'}</strong>{' convidou você para colaborar na playlist '}
+                          <strong>“{notification.playlist_name || 'playlist compartilhada'}”</strong>.
+                        </span>
+                      ) : (
+                        <span>{notification.message}</span>
+                      )}
+                      <small>{formatFeedDate(notification.created_at)}</small>
+                    </span>
+                    {!notification.read_status && <span className="notification-unread-dot" aria-label="Não lida" />}
+                  </button>
+                  {notification.type === 'PLAYLIST_INVITE' && notification.playlist_invite_status === 'PENDING' && (
+                    <div className="notification-invite-actions">
+                      <button type="button" className="notification-invite-accept" onClick={() => void respondToPlaylistInvite(notification, 'accept')}>Sim</button>
+                      <button type="button" className="notification-invite-decline" onClick={() => void respondToPlaylistInvite(notification, 'decline')}>Não</button>
+                    </div>
+                  )}
+                </article>
               ))}
             </div>
           ) : !error ? (
@@ -3469,6 +3510,11 @@ function PlaylistPage() {
 
   const isOwner = Boolean(user && playlistData && Number(user.id) === Number(playlistData.playlist.user_id));
   const canManagePlaylist = isOwner && isAccountApproved(user);
+  const canEditTracks = Boolean(
+    user
+    && isAccountApproved(user)
+    && playlistData?.permissions?.can_edit_tracks
+  );
   const reloadPlaylist = async () => {
     const response = await api.get(`/playlists/${playlistId}`);
     setPlaylistData(response.data);
@@ -3554,6 +3600,11 @@ function PlaylistPage() {
       !normalizedTrackQuery
       || normalizeGenre(`${track.track_title} ${track.artist_name} ${track.release_title}`).includes(normalizedTrackQuery)
     ));
+  const playlistCollaborators = (playlistData.collaborators || []).filter((person) => (
+    Number(person.user_id) !== Number(playlist.user_id)
+  ));
+  const acceptedCollaborators = playlistCollaborators.filter((person) => person.status === 'ACCEPTED');
+  const pendingCollaborators = playlistCollaborators.filter((person) => person.status === 'PENDING');
 
   return (
     <div className="content-stack playlist-page">
@@ -3586,6 +3637,44 @@ function PlaylistPage() {
       </section>
 
       {actionError && <p className="playlist-form-error" role="alert">{actionError}</p>}
+
+      {(canManagePlaylist || playlistCollaborators.length > 0) && (
+        <section className="playlist-collaboration-panel glass-panel">
+          <div className="playlist-collaboration-heading">
+            <div>
+              <p className="eyebrow">Sala compartilhada</p>
+              <h2>Quem monta essa playlist</h2>
+            </div>
+            <span>{acceptedCollaborators.length + 1} participante{acceptedCollaborators.length === 0 ? '' : 's'}</span>
+          </div>
+          <div className="playlist-collaborator-list">
+            <Link to={`/profile/${playlist.user_id}`} className="playlist-collaborator-card is-owner">
+              <img src={playlist.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+              <span>
+                <strong>{playlist.full_name || playlist.username}</strong>
+                <small>Dono da playlist</small>
+              </span>
+            </Link>
+            {acceptedCollaborators.map((person) => (
+              <Link key={person.id} to={`/profile/${person.user_id}`} className="playlist-collaborator-card">
+                <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                <span>
+                  <strong>{person.full_name || person.username}</strong>
+                  <small>Colaborador</small>
+                </span>
+              </Link>
+            ))}
+          </div>
+          {canManagePlaylist && pendingCollaborators.length > 0 && (
+            <div className="playlist-pending-invites">
+              <span>Convites pendentes</span>
+              <div>
+                {pendingCollaborators.map((person) => <small key={person.id}>@{person.username}</small>)}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {isEditing && canManagePlaylist && (
         <form className="playlist-edit-form glass-panel" onSubmit={savePlaylist}>
@@ -3636,7 +3725,7 @@ function PlaylistPage() {
             />
           </div>
         )}
-        {canManagePlaylist && trackQuery.trim() && <p className="image-drop-hint">Limpe a busca para alterar a ordem das faixas.</p>}
+        {canEditTracks && trackQuery.trim() && <p className="image-drop-hint">Limpe a busca para alterar a ordem das faixas.</p>}
         {visibleTracks.length ? (
           <ol className="playlist-track-list">
             {visibleTracks.map(({ track, index }) => (
@@ -3655,7 +3744,7 @@ function PlaylistPage() {
                   <a href={track.youtube_url} target="_blank" rel="noreferrer" className="track-link-btn">Ouvir</a>
                 )}
                 <span className="playlist-track-duration">{track.duration || '—'}</span>
-                {canManagePlaylist && (
+                {canEditTracks && (
                   <div className="playlist-track-owner-actions">
                     <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0 || Boolean(trackQuery.trim())} aria-label={`Mover ${track.track_title} para cima`}>↑</button>
                     <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === tracks.length - 1 || Boolean(trackQuery.trim())} aria-label={`Mover ${track.track_title} para baixo`}>↓</button>
@@ -3671,7 +3760,7 @@ function PlaylistPage() {
           <div className="profile-empty-state glass-panel">
             <span aria-hidden="true">♫</span>
             <h3>Esta playlist ainda está vazia</h3>
-            <p>{canManagePlaylist ? 'Abra um álbum ou EP e adicione músicas usando o botão “Playlist”.' : 'O proprietário ainda não adicionou músicas.'}</p>
+            <p>{canEditTracks ? 'Abra um álbum ou EP e adicione músicas usando o botão “Playlist”.' : 'O proprietário ainda não adicionou músicas.'}</p>
             <Link to="/explore" className="secondary-btn">Explorar lançamentos</Link>
           </div>
         )}
@@ -3697,6 +3786,10 @@ function ProfilePage() {
   const [playlistCoverUrl, setPlaylistCoverUrl] = useState('');
   const [playlistError, setPlaylistError] = useState('');
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
+  const [playlistInviteQuery, setPlaylistInviteQuery] = useState('');
+  const [playlistInviteResults, setPlaylistInviteResults] = useState([]);
+  const [playlistInviteUsers, setPlaylistInviteUsers] = useState([]);
+  const [isLoadingPlaylistInvites, setIsLoadingPlaylistInvites] = useState(false);
   const [socialListMode, setSocialListMode] = useState('');
   const [socialUsers, setSocialUsers] = useState([]);
   const [socialListQuery, setSocialListQuery] = useState('');
@@ -3729,6 +3822,35 @@ function ProfilePage() {
     if (profileSearchParams.get('tab') === 'playlists') setActiveTab('playlists');
   }, [profileSearchParams]);
 
+  useEffect(() => {
+    const query = playlistInviteQuery.trim();
+    const canSearchPeople = Boolean(profile && user && Number(user.id) === Number(profile.user.id) && isAccountApproved(user));
+    if (!canSearchPeople || query.length < 2) {
+      setPlaylistInviteResults([]);
+      setIsLoadingPlaylistInvites(false);
+      return undefined;
+    }
+
+    let active = true;
+    setIsLoadingPlaylistInvites(true);
+    const timer = window.setTimeout(() => {
+      api.get('/users', { params: { q: query } })
+        .then((response) => {
+          if (active) setPlaylistInviteResults(response.data || []);
+        })
+        .catch(() => {
+          if (active) setPlaylistInviteResults([]);
+        })
+        .finally(() => {
+          if (active) setIsLoadingPlaylistInvites(false);
+        });
+    }, 220);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [playlistInviteQuery, profile?.user?.id, user?.id]);
+
   const saveProfile = async () => {
     await api.put('/users/me', form);
     await loadProfile();
@@ -3749,10 +3871,14 @@ function ProfilePage() {
         name,
         description: playlistDescription.trim(),
         cover_url: playlistCoverUrl.trim(),
+        invite_user_ids: playlistInviteUsers.map((person) => person.id),
       });
       setPlaylistName('');
       setPlaylistDescription('');
       setPlaylistCoverUrl('');
+      setPlaylistInviteQuery('');
+      setPlaylistInviteResults([]);
+      setPlaylistInviteUsers([]);
       await loadProfile();
       navigate(`/playlists/${response.data.playlistId}`);
     } catch (error) {
@@ -3760,6 +3886,20 @@ function ProfilePage() {
     } finally {
       setIsCreatingPlaylist(false);
     }
+  };
+
+  const addPlaylistInvite = (person) => {
+    setPlaylistInviteUsers((current) => (
+      current.some((selected) => Number(selected.id) === Number(person.id))
+        ? current
+        : [...current, person]
+    ));
+    setPlaylistInviteQuery('');
+    setPlaylistInviteResults([]);
+  };
+
+  const removePlaylistInvite = (personId) => {
+    setPlaylistInviteUsers((current) => current.filter((person) => Number(person.id) !== Number(personId)));
   };
 
   const toggleSocialList = async (mode) => {
@@ -3834,6 +3974,12 @@ function ProfilePage() {
     !normalizedFavoriteQuery
     || normalizeGenre(`${favorite.track_title} ${favorite.release_title} ${favorite.artist_name}`).includes(normalizedFavoriteQuery)
   ));
+  const getRelationshipLabel = (person) => {
+    if (person.is_following && person.is_follower) return 'Amigos';
+    if (person.is_following) return 'Seguindo';
+    if (person.is_follower) return 'Segue você';
+    return 'Na comunidade';
+  };
 
   return (
     <div className="content-stack profile-page">
@@ -4114,6 +4260,56 @@ function ProfilePage() {
                     aria-label="URL da capa da playlist"
                     disabled={isCreatingPlaylist}
                   />
+                  <div className="playlist-invite-picker">
+                    <div className="playlist-invite-heading">
+                      <div>
+                        <strong>Convidar amigos</strong>
+                        <span>Escolha quem vai montar essa playlist com você.</span>
+                      </div>
+                      {playlistInviteUsers.length > 0 && <small>{playlistInviteUsers.length} selecionado{playlistInviteUsers.length === 1 ? '' : 's'}</small>}
+                    </div>
+                    <input
+                      type="search"
+                      value={playlistInviteQuery}
+                      onChange={(event) => setPlaylistInviteQuery(event.target.value)}
+                      placeholder="Pesquisar por nome ou @usuário"
+                      aria-label="Pesquisar pessoas para convidar"
+                      disabled={isCreatingPlaylist}
+                    />
+                    {playlistInviteUsers.length > 0 && (
+                      <div className="playlist-invite-chips" aria-label="Pessoas selecionadas para o convite">
+                        {playlistInviteUsers.map((person) => (
+                          <button key={person.id} type="button" className="playlist-invite-chip" onClick={() => removePlaylistInvite(person.id)} aria-label={`Remover convite de @${person.username}`}>
+                            <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                            <span>@{person.username}</span>
+                            <b aria-hidden="true">×</b>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {(isLoadingPlaylistInvites || playlistInviteResults.length > 0) && (
+                      <div className="playlist-invite-results">
+                        {isLoadingPlaylistInvites ? (
+                          <p>Buscando pessoas…</p>
+                        ) : playlistInviteResults
+                          .filter((person) => !playlistInviteUsers.some((selected) => Number(selected.id) === Number(person.id)))
+                          .map((person) => (
+                            <button key={person.id} type="button" className="playlist-invite-result" onClick={() => addPlaylistInvite(person)} aria-pressed={playlistInviteUsers.some((selected) => Number(selected.id) === Number(person.id))}>
+                              <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                              <span>
+                                <strong>{person.full_name || person.username}</strong>
+                                <small>@{person.username} · {getRelationshipLabel(person)}</small>
+                              </span>
+                              <b aria-hidden="true">+</b>
+                            </button>
+                          ))}
+                        {!isLoadingPlaylistInvites && playlistInviteResults.length > 0 && playlistInviteResults.every((person) => playlistInviteUsers.some((selected) => Number(selected.id) === Number(person.id))) && (
+                          <p>Todas as pessoas encontradas já foram selecionadas.</p>
+                        )}
+                      </div>
+                    )}
+                    {playlistInviteQuery.trim().length === 1 && <small className="playlist-invite-hint">Digite pelo menos 2 caracteres para pesquisar.</small>}
+                  </div>
                   <button type="submit" className="primary-btn" disabled={isCreatingPlaylist}>
                     {isCreatingPlaylist ? 'Criando...' : 'Criar playlist'}
                   </button>

@@ -191,10 +191,18 @@ const saveReleaseArtists = async (releaseId, primaryArtistId, requestedArtistIds
   }
 };
 
-const createNotification = async (userId, type, message, linkUrl, actorUserId = null) => {
+const createNotificationOnConnection = async (connection, userId, type, message, linkUrl, actorUserId = null, playlistCollaboratorId = null) => {
+  const [result] = await connection.execute(
+    'INSERT INTO notifications (user_id, type, actor_user_id, message, link_url, playlist_collaborator_id) VALUES (?, ?, ?, ?, ?, ?)',
+    [userId, type, actorUserId, message, linkUrl, playlistCollaboratorId]
+  );
+  return { id: Number(result.insertId || 0), changes: Number(result.affectedRows || 0) };
+};
+
+const createNotification = async (userId, type, message, linkUrl, actorUserId = null, playlistCollaboratorId = null) => {
   await runDb(
-    'INSERT INTO notifications (user_id, type, actor_user_id, message, link_url) VALUES (?, ?, ?, ?, ?)',
-    [userId, type, actorUserId, message, linkUrl]
+    'INSERT INTO notifications (user_id, type, actor_user_id, message, link_url, playlist_collaborator_id) VALUES (?, ?, ?, ?, ?, ?)',
+    [userId, type, actorUserId, message, linkUrl, playlistCollaboratorId]
   );
 };
 
@@ -532,6 +540,7 @@ async function initializeDatabase() {
     ['type', "VARCHAR(32) NOT NULL DEFAULT 'GENERAL'"],
     ['actor_user_id', 'BIGINT UNSIGNED NULL'],
     ['link_url', 'VARCHAR(512) NULL'],
+    ['playlist_collaborator_id', 'BIGINT UNSIGNED NULL'],
   ];
   for (const [columnName, columnDefinition] of notificationColumns) {
     const column = await getDb(`
@@ -542,6 +551,33 @@ async function initializeDatabase() {
     if (!column) {
       await execDb(`ALTER TABLE notifications ADD COLUMN \`${columnName}\` ${columnDefinition}`);
     }
+  }
+
+  const notificationIndex = await getDb(`
+    SELECT INDEX_NAME
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'notifications' AND INDEX_NAME = 'idx_notifications_playlist_collaborator'
+  `);
+  if (!notificationIndex) {
+    await execDb('ALTER TABLE notifications ADD INDEX idx_notifications_playlist_collaborator (playlist_collaborator_id)');
+  }
+  await execDb(`
+    UPDATE notifications n
+    LEFT JOIN playlist_collaborators pc ON pc.id = n.playlist_collaborator_id
+    SET n.playlist_collaborator_id = NULL
+    WHERE n.playlist_collaborator_id IS NOT NULL AND pc.id IS NULL
+  `);
+  const notificationForeignKey = await getDb(`
+    SELECT CONSTRAINT_NAME
+    FROM information_schema.REFERENTIAL_CONSTRAINTS
+    WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'notifications' AND CONSTRAINT_NAME = 'fk_notifications_playlist_collaborator'
+  `);
+  if (!notificationForeignKey) {
+    await execDb(`
+      ALTER TABLE notifications
+      ADD CONSTRAINT fk_notifications_playlist_collaborator
+      FOREIGN KEY (playlist_collaborator_id) REFERENCES playlist_collaborators(id) ON DELETE SET NULL
+    `);
   }
 
   const rolesRow = await getDb('SELECT COUNT(*) AS count FROM roles');
@@ -1930,9 +1966,14 @@ app.get('/api/notifications', requireAuth, async (req, res) => {
   const [notifications, unreadCount] = await Promise.all([
     allDb(`
       SELECT n.id, n.type, n.actor_user_id, n.message, n.link_url, n.read_status, n.created_at,
-        u.username AS actor_username, u.full_name AS actor_full_name, u.avatar_url AS actor_avatar_url
+        n.playlist_collaborator_id,
+        u.username AS actor_username, u.full_name AS actor_full_name, u.avatar_url AS actor_avatar_url,
+        pc.status AS playlist_invite_status, pc.playlist_id,
+        p.name AS playlist_name
       FROM notifications n
       LEFT JOIN users u ON u.id = n.actor_user_id
+      LEFT JOIN playlist_collaborators pc ON pc.id = n.playlist_collaborator_id
+      LEFT JOIN playlists p ON p.id = pc.playlist_id
       WHERE n.user_id = ?
       ORDER BY n.created_at DESC, n.id DESC
       LIMIT 50
@@ -1943,6 +1984,60 @@ app.get('/api/notifications', requireAuth, async (req, res) => {
     notifications,
     unread_count: Number(unreadCount.count || 0),
     account_suspended: Boolean(req.user.is_suspended),
+  });
+});
+
+app.post('/api/notifications/:id/playlist-invite', requireAuth, async (req, res) => {
+  const notificationId = parsePositiveId(req.params.id);
+  const decision = req.body?.decision === 'accept' ? 'ACCEPTED' : req.body?.decision === 'decline' ? 'DECLINED' : null;
+  if (!notificationId || !decision) return res.status(400).json({ error: 'Choose whether to accept or decline the invitation.' });
+
+  const connection = await db.getConnection();
+  let invitation;
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.execute(`
+      SELECT n.id, n.actor_user_id, n.playlist_collaborator_id, pc.playlist_id, pc.status,
+        p.name AS playlist_name
+      FROM notifications n
+      JOIN playlist_collaborators pc ON pc.id = n.playlist_collaborator_id
+      JOIN playlists p ON p.id = pc.playlist_id
+      WHERE n.id = ? AND n.user_id = ?
+      FOR UPDATE
+    `, [notificationId, req.user.id]);
+    invitation = rows[0];
+    if (!invitation) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'Invitation not found.' });
+    }
+
+    if (invitation.status === 'PENDING') {
+      await connection.execute(
+        'UPDATE playlist_collaborators SET status = ?, responded_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+        [decision, invitation.playlist_collaborator_id, req.user.id]
+      );
+      invitation.status = decision;
+      const nextMessage = decision === 'ACCEPTED'
+        ? `Você aceitou o convite para colaborar na playlist “${invitation.playlist_name}”.`
+        : `Você recusou o convite para colaborar na playlist “${invitation.playlist_name}”.`;
+      await connection.execute(
+        'UPDATE notifications SET read_status = 1, message = ? WHERE id = ? AND user_id = ?',
+        [nextMessage, notificationId, req.user.id]
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+
+  return res.json({
+    status: invitation.status,
+    playlist_id: invitation.playlist_id,
+    playlist_name: invitation.playlist_name,
+    already_answered: invitation.status !== 'PENDING',
   });
 });
 
@@ -1976,15 +2071,46 @@ app.get('/api/users', requireAuth, async (req, res) => {
       (SELECT COUNT(*) FROM user_follows f WHERE f.followed_id = u.id) AS follower_count,
       EXISTS (
         SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id
-      ) AS followed_by_user
+      ) AS is_following,
+      EXISTS (
+        SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id
+      ) AS followed_by_user,
+      EXISTS (
+        SELECT 1 FROM user_follows f WHERE f.follower_id = u.id AND f.followed_id = ?
+      ) AS is_follower,
+      CASE
+        WHEN EXISTS (
+          SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id
+        ) AND EXISTS (
+          SELECT 1 FROM user_follows f WHERE f.follower_id = u.id AND f.followed_id = ?
+        ) THEN 0
+        WHEN EXISTS (
+          SELECT 1 FROM user_follows f WHERE f.follower_id = ? AND f.followed_id = u.id
+        ) OR EXISTS (
+          SELECT 1 FROM user_follows f WHERE f.follower_id = u.id AND f.followed_id = ?
+        ) THEN 1
+        ELSE 2
+      END AS relationship_priority
     FROM users u
     WHERE u.id <> ?
       AND u.is_suspended = 0
       AND u.is_approved = 1
       AND (? = '' OR u.username LIKE ? OR u.full_name LIKE ?)
-    ORDER BY u.created_at DESC, u.id DESC
+    ORDER BY relationship_priority ASC, u.created_at DESC, u.id DESC
     LIMIT 30
-  `, [req.user.id, req.user.id, query, pattern, pattern]);
+  `, [
+    req.user.id,
+    req.user.id,
+    req.user.id,
+    req.user.id,
+    req.user.id,
+    req.user.id,
+    req.user.id,
+    req.user.id,
+    query,
+    pattern,
+    pattern,
+  ]);
 
   return res.json(users);
 });
@@ -2335,18 +2461,54 @@ app.post('/api/genres', requireAuth, requireAdmin, async (req, res) => {
   return res.status(201).json(genre);
 });
 
+const getPlaylistAccess = async (playlistId, userId = 0) => {
+  const access = await getDb(`
+    SELECT p.id, p.user_id,
+      (p.user_id = ?) AS is_owner,
+      EXISTS (
+        SELECT 1 FROM playlist_collaborators pc
+        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+      ) AS is_collaborator
+    FROM playlists p
+    WHERE p.id = ?
+  `, [userId, userId, playlistId]);
+  if (!access) return null;
+  return {
+    ...access,
+    is_owner: Boolean(Number(access.is_owner)),
+    is_collaborator: Boolean(Number(access.is_collaborator)),
+    can_edit_tracks: Boolean(Number(access.is_owner)) || Boolean(Number(access.is_collaborator)),
+  };
+};
+
+const getPlaylistInviteIds = (value) => {
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > 50) {
+    throw Object.assign(new Error('Choose up to 50 people to invite.'), { statusCode: 400 });
+  }
+  return [...new Set(value.map(parsePositiveId).filter(Boolean))];
+};
+
 app.get('/api/playlists', requireAuth, async (req, res) => {
   const playlists = await allDb(`
     SELECT p.*,
-      (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id = p.id) AS track_count
+      (SELECT COUNT(*) FROM playlist_tracks pt WHERE pt.playlist_id = p.id) AS track_count,
+      (p.user_id = ?) AS is_owner,
+      EXISTS (
+        SELECT 1 FROM playlist_collaborators pc
+        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+      ) AS is_collaborator
     FROM playlists p
-    WHERE p.user_id = ?
+    WHERE p.user_id = ? OR EXISTS (
+      SELECT 1 FROM playlist_collaborators pc
+      WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+    )
     ORDER BY p.created_at DESC, p.id DESC
-  `, [req.user.id]);
+  `, [req.user.id, req.user.id, req.user.id, req.user.id]);
   return res.json(playlists);
 });
 
-app.get('/api/playlists/:playlistId', async (req, res) => {
+app.get('/api/playlists/:playlistId', optionalAuth, async (req, res) => {
   const playlistId = parsePositiveId(req.params.playlistId);
   if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
 
@@ -2358,6 +2520,19 @@ app.get('/api/playlists/:playlistId', async (req, res) => {
     WHERE p.id = ? AND u.is_suspended = 0
   `, [playlistId]);
   if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+
+  const access = await getPlaylistAccess(playlistId, req.user?.id || 0);
+  const collaborators = await allDb(`
+    SELECT pc.id, pc.user_id, pc.status, pc.created_at, pc.responded_at,
+      u.username, u.full_name, u.avatar_url,
+      inviter.username AS invited_by_username, inviter.full_name AS invited_by_full_name
+    FROM playlist_collaborators pc
+    JOIN users u ON u.id = pc.user_id
+    LEFT JOIN users inviter ON inviter.id = pc.invited_by_user_id
+    WHERE pc.playlist_id = ?
+      AND (pc.status = 'ACCEPTED' OR (? = 1 AND ? = ?))
+    ORDER BY pc.status ASC, pc.created_at ASC, pc.id ASC
+  `, [playlistId, access?.is_owner ? 1 : 0, access?.is_owner ? playlist.user_id : 0, playlist.user_id]);
 
   const tracks = await allDb(`
     SELECT pt.track_id, pt.sort_order, t.title AS track_title, t.duration, t.explicit,
@@ -2371,7 +2546,12 @@ app.get('/api/playlists/:playlistId', async (req, res) => {
     ORDER BY pt.sort_order ASC, pt.id ASC
   `, [playlistId]);
 
-  return res.json({ playlist, tracks });
+  return res.json({
+    playlist,
+    tracks,
+    collaborators,
+    permissions: access || { is_owner: false, is_collaborator: false, can_edit_tracks: false },
+  });
 });
 
 app.post('/api/playlists', requireAuth, async (req, res) => {
@@ -2384,16 +2564,78 @@ app.post('/api/playlists', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Playlist details are invalid or too long.' });
   }
 
-  const playlist = await runDb(
-    `INSERT INTO playlists (user_id, name, description, cover_url) VALUES (?, ?, ?, ?)`,
-    [req.user.id, playlistName, playlistDescription, playlistCover]
-  );
-  return res.status(201).json({ message: 'Playlist created.', playlistId: playlist.id });
+  let inviteIds;
+  try {
+    inviteIds = getPlaylistInviteIds(req.body.invite_user_ids);
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ error: error.message });
+  }
+  if (inviteIds.includes(Number(req.user.id))) {
+    return res.status(400).json({ error: 'You cannot invite yourself to your own playlist.' });
+  }
+  let invitees = [];
+  if (inviteIds.length) {
+    invitees = await allDb(
+      `SELECT id, username, full_name
+       FROM users
+       WHERE id IN (${inviteIds.map(() => '?').join(', ')})
+         AND is_suspended = 0 AND is_approved = 1`,
+      inviteIds
+    );
+    if (invitees.length !== inviteIds.length) {
+      return res.status(400).json({ error: 'One or more selected people are no longer available.' });
+    }
+  }
+
+  const inviter = invitees.length
+    ? await getDb('SELECT username, full_name FROM users WHERE id = ?', [req.user.id])
+    : null;
+  const inviterName = inviter ? (inviter.full_name || inviter.username) : '';
+  const connection = await db.getConnection();
+  let playlistId;
+  try {
+    await connection.beginTransaction();
+    const [playlistResult] = await connection.execute(
+      'INSERT INTO playlists (user_id, name, description, cover_url) VALUES (?, ?, ?, ?)',
+      [req.user.id, playlistName, playlistDescription, playlistCover]
+    );
+    playlistId = Number(playlistResult.insertId);
+    await connection.execute(
+      `INSERT INTO playlist_collaborators (playlist_id, user_id, invited_by_user_id, status)
+       VALUES (?, ?, NULL, 'ACCEPTED')`,
+      [playlistId, req.user.id]
+    );
+    for (const invitee of invitees) {
+      const [collaborationResult] = await connection.execute(
+        `INSERT INTO playlist_collaborators (playlist_id, user_id, invited_by_user_id, status)
+         VALUES (?, ?, ?, 'PENDING')`,
+        [playlistId, invitee.id, req.user.id]
+      );
+      await createNotificationOnConnection(
+        connection,
+        invitee.id,
+        'PLAYLIST_INVITE',
+        `${inviterName} convidou você para colaborar na playlist “${playlistName}”.`,
+        `/playlists/${playlistId}`,
+        req.user.id,
+        Number(collaborationResult.insertId)
+      );
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return res.status(201).json({ message: 'Playlist created.', playlistId });
 });
 
 app.put('/api/playlists/:playlistId', requireAuth, async (req, res) => {
   const playlistId = parsePositiveId(req.params.playlistId);
   if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
+  const access = await getPlaylistAccess(playlistId, req.user.id);
+  if (!access?.is_owner) return res.status(404).json({ error: 'Playlist not found.' });
   const { name, description, cover_url } = req.body;
   const playlistName = typeof name === 'string' ? name.trim() : '';
   const playlistDescription = typeof description === 'string' ? description.trim() : '';
@@ -2403,20 +2645,18 @@ app.put('/api/playlists/:playlistId', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Playlist details are invalid or too long.' });
   }
 
-  const result = await runDb(
+  await runDb(
     'UPDATE playlists SET name = ?, description = ?, cover_url = ? WHERE id = ? AND user_id = ?',
     [playlistName, playlistDescription, playlistCover, playlistId, req.user.id]
   );
-  if (!result.changes) {
-    const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
-    if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
-  }
   return res.json({ message: 'Playlist updated.' });
 });
 
 app.delete('/api/playlists/:playlistId', requireAuth, async (req, res) => {
   const playlistId = parsePositiveId(req.params.playlistId);
   if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
+  const access = await getPlaylistAccess(playlistId, req.user.id);
+  if (!access?.is_owner) return res.status(404).json({ error: 'Playlist not found.' });
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -2446,16 +2686,33 @@ app.post('/api/playlists/:playlistId/tracks', requireAuth, async (req, res) => {
   if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
   if (!trackId) return res.status(400).json({ error: 'Track is required.' });
 
-  const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
-  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+  const access = await getPlaylistAccess(playlistId, req.user.id);
+  if (!access?.can_edit_tracks) return res.status(404).json({ error: 'Playlist not found.' });
   const track = await getDb('SELECT id FROM tracks WHERE id = ?', [trackId]);
   if (!track) return res.status(404).json({ error: 'Track not found.' });
 
-  const sortRow = await getDb('SELECT COALESCE(MAX(sort_order) + 1, 0) AS next_order FROM playlist_tracks WHERE playlist_id = ?', [playlistId]);
-  const result = await runDb(
-    'INSERT IGNORE INTO playlist_tracks (playlist_id, track_id, sort_order) VALUES (?, ?, ?)',
-    [playlistId, trackId, Number(sortRow.next_order)]
-  );
+  const connection = await db.getConnection();
+  let result;
+  try {
+    await connection.beginTransaction();
+    await connection.execute('SELECT id FROM playlists WHERE id = ? FOR UPDATE', [playlistId]);
+    const [sortRows] = await connection.execute(
+      'SELECT sort_order FROM playlist_tracks WHERE playlist_id = ? ORDER BY sort_order DESC, id DESC LIMIT 1',
+      [playlistId]
+    );
+    const nextOrder = sortRows.length ? Number(sortRows[0].sort_order) + 1 : 0;
+    const [insertResult] = await connection.execute(
+      'INSERT IGNORE INTO playlist_tracks (playlist_id, track_id, sort_order) VALUES (?, ?, ?)',
+      [playlistId, trackId, nextOrder]
+    );
+    result = { changes: Number(insertResult.affectedRows || 0) };
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
   return res.status(result.changes ? 201 : 200).json({ added: Boolean(result.changes) });
 });
 
@@ -2464,8 +2721,8 @@ app.delete('/api/playlists/:playlistId/tracks/:trackId', requireAuth, async (req
   const trackId = parsePositiveId(req.params.trackId);
   if (!playlistId || !trackId) return res.status(400).json({ error: 'Invalid playlist or track ID.' });
 
-  const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
-  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+  const access = await getPlaylistAccess(playlistId, req.user.id);
+  if (!access?.can_edit_tracks) return res.status(404).json({ error: 'Playlist not found.' });
   const result = await runDb('DELETE FROM playlist_tracks WHERE playlist_id = ? AND track_id = ?', [playlistId, trackId]);
   if (!result.changes) return res.status(404).json({ error: 'Track not found in this playlist.' });
   return res.json({ message: 'Track removed from playlist.' });
@@ -2479,8 +2736,8 @@ app.put('/api/playlists/:playlistId/tracks/order', requireAuth, async (req, res)
     return res.status(400).json({ error: 'Track order is invalid.' });
   }
 
-  const playlist = await getDb('SELECT id FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
-  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+  const access = await getPlaylistAccess(playlistId, req.user.id);
+  if (!access?.can_edit_tracks) return res.status(404).json({ error: 'Playlist not found.' });
   const existingTracks = await allDb('SELECT track_id FROM playlist_tracks WHERE playlist_id = ?', [playlistId]);
   const currentIds = existingTracks.map((row) => Number(row.track_id));
   const requestedIds = trackIds.map(Number);

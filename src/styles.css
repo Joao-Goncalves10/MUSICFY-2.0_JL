@@ -420,18 +420,15 @@ select option:checked {
 
 .notification-item {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 8px;
-  align-items: center;
-  gap: 11px;
+  gap: 8px;
   width: 100%;
-  padding: 11px 9px;
+  padding: 9px;
   border: 0;
   border-radius: 13px;
   color: var(--text);
   background: transparent;
   box-shadow: none;
   text-align: left;
-  cursor: pointer;
 }
 
 .notification-item:hover {
@@ -441,6 +438,28 @@ select option:checked {
 
 .notification-item.is-unread {
   background: rgba(116, 224, 166, 0.08);
+}
+
+.notification-item-main {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 8px;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 10px;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+.notification-item-main:hover {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
 }
 
 .notification-icon {
@@ -477,6 +496,43 @@ select option:checked {
   font-size: 0.82rem;
   line-height: 1.4;
   overflow-wrap: anywhere;
+}
+
+.notification-copy strong {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.notification-invite-actions {
+  display: flex;
+  gap: 7px;
+  padding-left: 49px;
+}
+
+.notification-invite-actions button {
+  min-width: 58px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.notification-invite-accept {
+  border-color: rgba(116, 224, 166, 0.36);
+  background: rgba(116, 224, 166, 0.18);
+  color: #bff4d6;
+}
+
+.notification-invite-decline {
+  border-color: rgba(232, 93, 117, 0.3);
+  background: rgba(232, 93, 117, 0.1);
+  color: #ffabb9;
+}
+
+.notification-icon.is-playlist_invite {
+  color: #f2d56b;
+  background: rgba(242, 213, 107, 0.14);
 }
 
 .notification-unread-dot {
@@ -3870,6 +3926,158 @@ textarea {
   flex: 0 0 auto;
 }
 
+.playlist-invite-picker {
+  position: relative;
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--glass-soft);
+}
+
+.playlist-invite-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.playlist-invite-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.playlist-invite-heading strong {
+  font-size: 0.86rem;
+}
+
+.playlist-invite-heading span,
+.playlist-invite-heading small,
+.playlist-invite-hint {
+  color: var(--muted);
+  font-size: 0.73rem;
+}
+
+.playlist-invite-heading > small {
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.playlist-invite-picker > input {
+  min-height: 42px;
+  padding: 9px 12px;
+  border-color: var(--line);
+  background: var(--control-background);
+  box-shadow: none;
+}
+
+.playlist-invite-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.playlist-invite-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px 4px 5px;
+  border: 1px solid rgba(155, 229, 199, 0.25);
+  border-radius: 999px;
+  background: rgba(155, 229, 199, 0.1);
+  color: var(--text);
+  font-size: 0.73rem;
+  box-shadow: none;
+}
+
+.playlist-invite-chip:hover {
+  background: rgba(155, 229, 199, 0.16);
+  box-shadow: none;
+}
+
+.playlist-invite-chip img,
+.playlist-invite-result img {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.playlist-invite-chip b,
+.playlist-invite-result > b {
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.playlist-invite-results {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--glass-strong);
+}
+
+.playlist-invite-results p {
+  margin: 7px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.playlist-invite-result {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 9px;
+  padding: 7px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  box-shadow: none;
+}
+
+.playlist-invite-result:hover {
+  background: var(--glass-soft);
+  box-shadow: none;
+}
+
+.playlist-invite-result > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.playlist-invite-result strong {
+  overflow: hidden;
+  font-size: 0.79rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-invite-result small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-invite-result > b {
+  color: var(--primary);
+  font-size: 1.2rem;
+  font-weight: 500;
+  text-align: center;
+}
+
 .playlist-form-error {
   margin: 8px 0 0;
   color: #ff8994;
@@ -4058,6 +4266,124 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.playlist-collaboration-panel {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border-color: var(--line);
+  background:
+    radial-gradient(circle at 100% 0, rgba(242, 213, 107, 0.1), transparent 38%),
+    var(--glass);
+}
+
+.playlist-collaboration-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.playlist-collaboration-heading .eyebrow {
+  margin: 0 0 3px;
+  color: var(--secondary);
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+}
+
+.playlist-collaboration-heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.playlist-collaboration-heading > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.playlist-collaborator-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.playlist-collaborator-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 170px;
+  padding: 7px 10px 7px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--glass-soft);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.playlist-collaborator-card:hover {
+  border-color: rgba(155, 229, 199, 0.4);
+  background: rgba(155, 229, 199, 0.09);
+}
+
+.playlist-collaborator-card.is-owner {
+  border-color: rgba(242, 213, 107, 0.3);
+}
+
+.playlist-collaborator-card img {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.playlist-collaborator-card span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.playlist-collaborator-card strong {
+  overflow: hidden;
+  font-size: 0.76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-collaborator-card small {
+  color: var(--muted);
+  font-size: 0.64rem;
+}
+
+.playlist-pending-invites {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.playlist-pending-invites > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.playlist-pending-invites > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.playlist-pending-invites small {
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: var(--secondary);
+  background: rgba(242, 213, 107, 0.1);
+  font-size: 0.68rem;
 }
 
 .playlist-edit-form {
@@ -6488,6 +6814,20 @@ textarea {
     border-radius: 17px;
     font-size: 1.8rem;
   }
+
+  .playlist-collaboration-heading {
+    align-items: start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .playlist-collaborator-card {
+    min-width: min(100%, 230px);
+  }
+
+  .notification-invite-actions {
+    padding-left: 0;
+  }
 }
 
 @media (max-width: 420px) {
@@ -7031,6 +7371,18 @@ textarea {
 
 :root[data-theme="light"] .notification-icon.is-new_release {
   color: #4658a8;
+}
+
+:root[data-theme="light"] .notification-invite-accept {
+  border-color: rgba(44, 128, 92, 0.25);
+  background: rgba(44, 128, 92, 0.1);
+  color: #236947;
+}
+
+:root[data-theme="light"] .notification-invite-decline {
+  border-color: rgba(179, 50, 81, 0.22);
+  background: rgba(179, 50, 81, 0.08);
+  color: #a3314d;
 }
 
 :root[data-theme="light"] .theme-toggle,
