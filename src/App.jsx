@@ -6,6 +6,7 @@ import arianaGrandeProfileImage from './img/artist/ariana grande/icon/ariana gra
 import slayyyterProfileImage from './img/artist/slayyyter/slayyyter-profile.jpg';
 import slayyyterAlbumCover from './img/artist/slayyyter/worstmaninamerica_cover.jpg';
 import imagePlaceholder from './img/musicfy-image-placeholder.svg';
+import { STORY_THEMES, renderStoryCard } from './storyCard';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -166,6 +167,81 @@ const handleImageError = (event, fallbackImage) => {
   }
   image.src = fallbackImage;
 };
+
+const useIsCompactViewport = (breakpoint = 760) => {
+  const [isCompact, setIsCompact] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(`(max-width: ${breakpoint}px)`).matches
+      : false
+  ));
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const mediaQuery = window.matchMedia(`(max-width: ${breakpoint}px)`);
+    const handleChange = (event) => setIsCompact(event.matches);
+    setIsCompact(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [breakpoint]);
+
+  return isCompact;
+};
+
+const useProgressiveList = (
+  items = [],
+  { initialCount = 12, mobileInitialCount = 6, step = 12, mobileStep = 6, resetKey = '' } = {},
+) => {
+  const isCompact = useIsCompactViewport();
+  const batchInitial = isCompact ? mobileInitialCount : initialCount;
+  const batchStep = isCompact ? mobileStep : step;
+  const [limit, setLimit] = useState(batchInitial);
+
+  useEffect(() => {
+    setLimit(batchInitial);
+  }, [batchInitial, resetKey]);
+
+  const safeItems = Array.isArray(items) ? items : [];
+  const visibleItems = useMemo(() => safeItems.slice(0, limit), [safeItems, limit]);
+  const hasMore = visibleItems.length < safeItems.length;
+  const remainingCount = Math.max(0, safeItems.length - visibleItems.length);
+  const loadMore = useCallback(() => {
+    setLimit((current) => Math.min(safeItems.length, current + batchStep));
+  }, [safeItems.length, batchStep]);
+
+  return { visibleItems, hasMore, remainingCount, loadMore };
+};
+
+function ProgressiveListTrigger({ hasMore, remainingCount, onLoadMore, label = 'Mostrar mais' }) {
+  const triggerRef = useRef(null);
+
+  useEffect(() => {
+    if (!hasMore || typeof IntersectionObserver !== 'function') return undefined;
+    const element = triggerRef.current;
+    if (!element) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: '320px 0px' },
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [hasMore, onLoadMore]);
+
+  if (!hasMore) return null;
+
+  return (
+    <div ref={triggerRef} className="progressive-load-more">
+      <button type="button" className="secondary-btn progressive-load-more-btn" onClick={onLoadMore}>
+        {label} ({remainingCount} restante{remainingCount === 1 ? '' : 's'})
+      </button>
+    </div>
+  );
+}
 
 function ArtworkBackdrop({ src, className }) {
   const canvases = useRef([]);
@@ -1046,6 +1122,20 @@ function HomePage() {
   const visibleRecentReleases = recentReleases.filter((release) => (
     recentReleaseTypeFilter === 'Todos' || release.release_type === recentReleaseTypeFilter
   ));
+  const reviewsFeed = useProgressiveList(visibleReviews, {
+    initialCount: 10,
+    mobileInitialCount: 6,
+    step: 10,
+    mobileStep: 6,
+    resetKey: `${feedMode}|${normalizedFeedQuery}|${feedRatingFilter}`,
+  });
+  const recentFeed = useProgressiveList(visibleRecentReleases, {
+    initialCount: 12,
+    mobileInitialCount: 5,
+    step: 12,
+    mobileStep: 6,
+    resetKey: recentReleaseTypeFilter,
+  });
 
   return (
     <div className="home-page">
@@ -1123,8 +1213,9 @@ function HomePage() {
           {isLoading ? (
             <div className="home-feed-loading glass-panel" aria-live="polite">Carregando seu feed…</div>
           ) : visibleReviews.length ? (
-            <div className="home-review-list">
-              {visibleReviews.map((review) => {
+            <>
+              <div className="home-review-list">
+                {reviewsFeed.visibleItems.map((review) => {
   const accentColor =
     review.accent_color ||
     review.artist_accent_color ||
@@ -1144,6 +1235,8 @@ function HomePage() {
           <img
             src={review.avatar_url || imagePlaceholder}
             onError={(event) => handleImageError(event, imagePlaceholder)}
+            loading="lazy"
+            decoding="async"
             alt=""
           />
           <span>
@@ -1161,6 +1254,8 @@ function HomePage() {
         <img
           src={review.release_cover || imagePlaceholder}
           onError={(event) => handleImageError(event, imagePlaceholder)}
+          loading="lazy"
+          decoding="async"
           alt=""
         />
         <span>
@@ -1185,6 +1280,7 @@ function HomePage() {
           onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
         />
         <ShareReviewButton review={review} user={user} />
+        <StoryShareButton review={review} />
         <ReviewOwnerActions
           review={review}
           user={user}
@@ -1198,7 +1294,9 @@ function HomePage() {
     </article>
   );
 })}
-            </div>
+              </div>
+              <ProgressiveListTrigger {...reviewsFeed} label="Carregar mais resenhas" />
+            </>
           ) : (
             <div className="home-feed-empty glass-panel">
               <span className="home-empty-mark" aria-hidden="true">♫</span>
@@ -1238,24 +1336,27 @@ function HomePage() {
           </select>
 
           {visibleRecentReleases.length ? (
-            <div className="home-recent-list">
-              {visibleRecentReleases.map((release) => (
-                <Link
-                  key={release.id}
-                  to={`/releases/${release.id}`}
-                  className="home-recent-release"
-                  style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
-                >
-                  <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
-                  <span>
-                    <small>{release.release_type} · {formatFeedDate(release.release_date)}</small>
-                    <strong>{release.title}</strong>
-                    <span>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')}</span>
-                  </span>
-                  <span className="home-recent-arrow" aria-hidden="true">↗</span>
-                </Link>
-              ))}
-            </div>
+            <>
+              <div className="home-recent-list">
+                {recentFeed.visibleItems.map((release) => (
+                  <Link
+                    key={release.id}
+                    to={`/releases/${release.id}`}
+                    className="home-recent-release"
+                    style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
+                  >
+                    <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} loading="lazy" decoding="async" alt="" />
+                    <span>
+                      <small>{release.release_type} · {formatFeedDate(release.release_date)}</small>
+                      <strong>{release.title}</strong>
+                      <span>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')}</span>
+                    </span>
+                    <span className="home-recent-arrow" aria-hidden="true">↗</span>
+                  </Link>
+                ))}
+              </div>
+              <ProgressiveListTrigger {...recentFeed} label="Mostrar mais lançamentos" />
+            </>
           ) : !isLoading && recentReleases.length ? (
             <p className="home-recent-empty">Nenhum lançamento deste tipo.</p>
           ) : !isLoading ? (
@@ -1334,6 +1435,13 @@ function ExplorePage() {
       }
       return String(second.release_date).localeCompare(String(first.release_date));
     });
+  const releaseFeed = useProgressiveList(filteredReleases, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${selectedGenre}|${releaseTypeFilter}|${normalizedCatalogQuery}|${releaseSort}`,
+  });
 
   const scrollGenres = (direction) => {
     const track = genreTrackRef.current;
@@ -1464,8 +1572,9 @@ function ExplorePage() {
           </select>
         </div>
         <div className="card-grid">
-          {filteredReleases.map((release) => <ReleaseCard key={release.id} release={release} />)}
+          {releaseFeed.visibleItems.map((release) => <ReleaseCard key={release.id} release={release} />)}
         </div>
+        <ProgressiveListTrigger {...releaseFeed} label="Carregar mais lançamentos" />
         {filteredReleases.length === 0 && (
           <p className="explore-empty-state">Nenhum lançamento corresponde aos filtros selecionados.</p>
         )}
@@ -1488,6 +1597,13 @@ function ArtistsPage() {
     .sort((a, b) => sortMode === 'name'
       ? (a.name || '').localeCompare(b.name || '')
       : Number(b.release_count || 0) - Number(a.release_count || 0));
+  const artistFeed = useProgressiveList(filtered, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${query}|${sortMode}`,
+  });
 
   return (
     <div className="content-stack artists-page">
@@ -1507,11 +1623,14 @@ function ArtistsPage() {
         </select>
       </div>
       {filtered.length ? (
-        <div className="artist-grid">
-          {filtered.map((artist) => (
-            <ArtistCard key={artist.id} artist={artist} />
-          ))}
-        </div>
+        <>
+          <div className="artist-grid">
+            {artistFeed.visibleItems.map((artist) => (
+              <ArtistCard key={artist.id} artist={artist} />
+            ))}
+          </div>
+          <ProgressiveListTrigger {...artistFeed} label="Carregar mais artistas" />
+        </>
       ) : (
         <div className="profile-empty-state glass-panel">
           <span aria-hidden="true">⌕</span>
@@ -1707,6 +1826,225 @@ function ShareReviewButton({ review, user }) {
       <span aria-hidden="true">↗</span>
       Compartilhar
     </Link>
+  );
+}
+
+function StoryShareButton({ review }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [themeId, setThemeId] = useState('aura');
+  const [showQuote, setShowQuote] = useState(true);
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [storyBlob, setStoryBlob] = useState(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let active = true;
+    setIsGenerating(true);
+    setErrorMessage('');
+    setStatusMessage('');
+
+    renderStoryCard({
+      review,
+      themeId,
+      showQuote,
+      fallbackCover: getReleaseFallbackImage({ title: review?.release_title }),
+    })
+      .then((result) => {
+        if (!active) return;
+        setStoryBlob(result.blob);
+        setPreviewUrl(result.dataUrl);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setErrorMessage(error.message || 'Não foi possível gerar o cartão do Story.');
+      })
+      .finally(() => {
+        if (active) setIsGenerating(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isOpen, review, themeId, showQuote]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
+  const slugName = String(review?.release_title || 'resenha')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'resenha';
+  const fileName = `musicfy-story-${slugName}.png`;
+
+  const downloadPng = () => {
+    if (!storyBlob) return;
+    const url = URL.createObjectURL(storyBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setStatusMessage('Imagem 9:16 salva! Agora é só postar nos Stories do Instagram.');
+  };
+
+  const shareToStories = async () => {
+    if (!storyBlob) return;
+    const file = new File([storyBlob], fileName, { type: 'image/png' });
+    const releaseUrl = review?.release_id
+      ? `${window.location.origin}/releases/${review.release_id}`
+      : window.location.origin;
+
+    if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: `${review?.release_title || 'Resenha'} no Musicfy`,
+          text: `Minha nota ${review?.rating ?? 0}/10 para "${review?.release_title || 'este lançamento'}" no Musicfy: ${releaseUrl}`,
+        });
+        setStatusMessage('Cartão enviado para compartilhamento!');
+        return;
+      } catch (error) {
+        if (error?.name === 'AbortError') return;
+      }
+    }
+
+    downloadPng();
+  };
+
+  const copyInviteLink = async () => {
+    const releaseUrl = review?.release_id
+      ? `${window.location.origin}/releases/${review.release_id}`
+      : window.location.origin;
+    const text = `Minha nota ${review?.rating ?? 0}/10 para "${review?.release_title || 'este lançamento'}" de ${review?.artist_name || 'artista'} no Musicfy — ${releaseUrl}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatusMessage('Texto e link copiados para usar no sticker do Story!');
+    } catch {
+      setErrorMessage('Não foi possível copiar automaticamente.');
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="story-share-btn"
+        onClick={() => setIsOpen(true)}
+        aria-label={`Gerar cartão de Story para a resenha de ${review?.release_title || 'lançamento'}`}
+      >
+        <span aria-hidden="true">✦</span>
+        Story
+      </button>
+
+      {isOpen && (
+        <div
+          className="story-share-backdrop"
+          role="presentation"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setIsOpen(false);
+          }}
+        >
+          <section className="story-share-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="story-share-title">
+            <header className="story-share-header">
+              <div>
+                <p className="eyebrow">Instagram Stories · 9:16</p>
+                <h2 id="story-share-title">Compartilhar cartão da resenha</h2>
+              </div>
+              <button type="button" className="story-share-close" onClick={() => setIsOpen(false)} aria-label="Fechar janela de Story">
+                <span aria-hidden="true">×</span>
+              </button>
+            </header>
+
+            <div className="story-share-layout">
+              <div className="story-share-preview-frame">
+                {previewUrl ? (
+                  <img src={previewUrl} alt={`Prévia do cartão de Story para ${review?.release_title || 'resenha'}`} />
+                ) : (
+                  <div className="story-share-placeholder">Gerando cartão…</div>
+                )}
+                {isGenerating && <span className="story-share-generating">Atualizando…</span>}
+              </div>
+
+              <div className="story-share-controls">
+                <div className="story-control-group">
+                  <span className="story-control-label">Visual do cartão</span>
+                  <div className="story-theme-pills" role="group" aria-label="Estilo do cartão">
+                    {STORY_THEMES.map((theme) => (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        className={`story-theme-pill${themeId === theme.id ? ' is-active' : ''}`}
+                        aria-pressed={themeId === theme.id}
+                        onClick={() => setThemeId(theme.id)}
+                      >
+                        <strong>{theme.label}</strong>
+                        <small>{theme.description}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {Boolean(review?.review_text) && (
+                  <label className="story-quote-toggle">
+                    <input
+                      type="checkbox"
+                      checked={showQuote}
+                      onChange={(event) => setShowQuote(event.target.checked)}
+                    />
+                    <span>Incluir trecho da sua resenha no cartão</span>
+                  </label>
+                )}
+
+                {errorMessage && <p className="error-text" role="alert">{errorMessage}</p>}
+                {statusMessage && <p className="admin-notice" role="status">{statusMessage}</p>}
+
+                <div className="story-share-actions">
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    disabled={isGenerating || !storyBlob}
+                    onClick={shareToStories}
+                  >
+                    Compartilhar nos Stories
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary-btn"
+                    disabled={isGenerating || !storyBlob}
+                    onClick={downloadPng}
+                  >
+                    Baixar imagem (PNG)
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={copyInviteLink}
+                  >
+                    Copiar link para sticker
+                  </button>
+                </div>
+                <p className="story-share-hint">
+                  No celular, toque em &ldquo;Compartilhar nos Stories&rdquo; para abrir o menu nativo e escolher o Instagram.
+                </p>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -1989,6 +2327,13 @@ function SocialPage() {
       ? Number(second.follower_count || 0) - Number(first.follower_count || 0)
         || String(first.full_name || first.username).localeCompare(String(second.full_name || second.username))
       : String(first.full_name || first.username).localeCompare(String(second.full_name || second.username)));
+  const userFeed = useProgressiveList(filteredUsers, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${query}|${followFilter}|${userSort}`,
+  });
 
   return (
     <div className="content-stack social-page">
@@ -2030,41 +2375,44 @@ function SocialPage() {
         {isLoading ? (
           <div className="loading-panel">Carregando pessoas…</div>
         ) : filteredUsers.length ? (
-          <div className="social-user-grid">
-            {filteredUsers.map((person) => (
-              <article key={person.id} className="social-user-card glass-panel">
-                <Link to={`/profile/${person.id}`} className="social-user-link">
-                  <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                  <span className="social-user-copy">
-                    <strong>{person.full_name || person.username}</strong>
-                    <small>@{person.username}</small>
-                  </span>
-                </Link>
-                <p>{person.bio || 'Ainda não adicionou uma biografia.'}</p>
-                <div className="social-user-footer">
-                  <span>{Number(person.follower_count || 0)} seguidores</span>
-                  <div className="social-user-actions">
-                    {user && isAccountApproved(user) && (
-                      <Link className="chat-contact-link" to={`/chat?with=${person.id}`}>Mensagem</Link>
-                    )}
-                    <FollowButton
-                      userId={person.id}
-                      initialFollowing={Boolean(person.followed_by_user)}
-                      onChange={(isFollowing) => setUsers((current) => current.map((item) => (
-                        String(item.id) === String(person.id)
-                          ? {
-                            ...item,
-                            follower_count: Math.max(0, Number(item.follower_count || 0) + (isFollowing ? 1 : -1)),
-                            followed_by_user: isFollowing,
-                          }
-                          : item
-                      )))}
-                    />
+          <>
+            <div className="social-user-grid">
+              {userFeed.visibleItems.map((person) => (
+                <article key={person.id} className="social-user-card glass-panel">
+                  <Link to={`/profile/${person.id}`} className="social-user-link">
+                    <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
+                    <span className="social-user-copy">
+                      <strong>{person.full_name || person.username}</strong>
+                      <small>@{person.username}</small>
+                    </span>
+                  </Link>
+                  <p>{person.bio || 'Ainda não adicionou uma biografia.'}</p>
+                  <div className="social-user-footer">
+                    <span>{Number(person.follower_count || 0)} seguidores</span>
+                    <div className="social-user-actions">
+                      {user && isAccountApproved(user) && (
+                        <Link className="chat-contact-link" to={`/chat?with=${person.id}`}>Mensagem</Link>
+                      )}
+                      <FollowButton
+                        userId={person.id}
+                        initialFollowing={Boolean(person.followed_by_user)}
+                        onChange={(isFollowing) => setUsers((current) => current.map((item) => (
+                          String(item.id) === String(person.id)
+                            ? {
+                              ...item,
+                              follower_count: Math.max(0, Number(item.follower_count || 0) + (isFollowing ? 1 : -1)),
+                              followed_by_user: isFollowing,
+                            }
+                            : item
+                        )))}
+                      />
+                    </div>
                   </div>
-                </div>
-              </article>
-            ))}
-          </div>
+                </article>
+              ))}
+            </div>
+            <ProgressiveListTrigger {...userFeed} label="Carregar mais pessoas" />
+          </>
         ) : !error ? (
           <div className="profile-empty-state glass-panel">
             <span aria-hidden="true">⌕</span>
@@ -2606,6 +2954,14 @@ function ArtistDetailPage() {
     return () => setShellAccent('');
   }, [artistData?.artist?.accent_color, setShellAccent]);
 
+  const artistReleaseFeed = useProgressiveList(artistData?.releases || [], {
+    initialCount: 20,
+    mobileInitialCount: 8,
+    step: 20,
+    mobileStep: 8,
+    resetKey: artistId,
+  });
+
   if (!artistData) return <div className="loading-panel">Carregando artista…</div>;
 
   const accentStyle = artistData.artist.accent_color
@@ -2660,7 +3016,7 @@ function ArtistDetailPage() {
           <h2>Lançamentos populares</h2>
         </div>
         <div className="artist-release-list">
-          {artistData.releases.length ? artistData.releases.map((release, index) => (
+          {artistData.releases.length ? artistReleaseFeed.visibleItems.map((release, index) => (
             <Link
               key={release.id}
               to={`/releases/${release.id}`}
@@ -2668,7 +3024,7 @@ function ArtistDetailPage() {
               style={{ '--release-accent': release.accent_color || artistData.artist.accent_color || '#31b6c5' }}
             >
               <span className="artist-release-rank">{index + 1}</span>
-              <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
+              <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} loading="lazy" decoding="async" alt="" />
               <span className="artist-release-copy">
                 <strong>{release.title}</strong>
                 <small>{release.release_type} <span aria-hidden="true">•</span> {release.release_date}</small>
@@ -2679,6 +3035,7 @@ function ArtistDetailPage() {
             <p className="artist-empty-state">Este artista ainda não tem lançamentos cadastrados.</p>
           )}
         </div>
+        <ProgressiveListTrigger {...artistReleaseFeed} label="Mostrar mais lançamentos" />
       </section>
 
       <section className="artist-about" id="artist-about">
@@ -2702,7 +3059,7 @@ function ReleaseCard({ release, showListen = false }) {
       className="release-card glass-panel"
       style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
     >
-      <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
+      <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} loading="lazy" decoding="async" alt={release.title} />
       <div className="release-meta">
         <span>{release.release_type}</span>
         <h3>{release.title}</h3>
@@ -2723,7 +3080,7 @@ function ArtistCard({ artist }) {
       className="artist-card"
       style={artist.accent_color ? { '--artist-accent': artist.accent_color } : undefined}
     >
-      <img src={artist.image_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt={artist.name} />
+      <img src={artist.image_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} loading="lazy" decoding="async" alt={artist.name} />
       <div>
         <h3>{artist.name}</h3>
         <p>{artist.genre_names || artist.genre || 'Artista independente'}</p>
@@ -2927,6 +3284,14 @@ function ReleaseDetailPage() {
       reviews: current.reviews.filter((review) => String(review.id) !== String(reviewId)),
     }) : current);
   };
+
+  const releaseReviewFeed = useProgressiveList(releaseInfo?.reviews || [], {
+    initialCount: 10,
+    mobileInitialCount: 6,
+    step: 10,
+    mobileStep: 6,
+    resetKey: releaseId,
+  });
 
   if (!releaseInfo) return <div className="loading-panel">Carregando lançamento…</div>;
 
@@ -3435,11 +3800,11 @@ function ReleaseDetailPage() {
           <span>{reviews.length} resenhas</span>
         </div>
         <div className="feed-list">
-          {reviews.map((review) => (
+          {releaseReviewFeed.visibleItems.map((review) => (
             <div key={review.id} className="review-feed-item glass-panel">
               <div className="review-head">
                 <Link to={`/profile/${review.user_id}`} className="mini-user review-author-link">
-                  <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={review.username} />
+                  <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt={review.username} />
                   <div>
                     <strong>{review.username}</strong>
                     <span>{review.created_at}</span>
@@ -3456,6 +3821,16 @@ function ReleaseDetailPage() {
                   onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
                 />
                 <ShareReviewButton review={review} user={user} />
+                <StoryShareButton
+                  review={{
+                    ...review,
+                    release_title: release.title,
+                    release_cover: releaseCoverUrl,
+                    artist_name: release.artist_name,
+                    accent_color: release.accent_color,
+                    artist_accent_color: release.artist_accent_color,
+                  }}
+                />
                 <ReviewOwnerActions
                   review={review}
                   user={user}
@@ -3467,6 +3842,7 @@ function ReleaseDetailPage() {
           ))}
           {!reviews.length && <p className="explore-empty-state">Ainda não há resenhas para este lançamento.</p>}
         </div>
+        <ProgressiveListTrigger {...releaseReviewFeed} label="Carregar mais resenhas" />
       </section>
     </div>
   );
@@ -3950,30 +4326,60 @@ function ProfilePage() {
     }) : current);
   };
 
-  if (!profile) return <div className="loading-panel">Carregando perfil…</div>;
-
-  const isOwner = Number(user?.id) === Number(profile.user.id);
-  const canManageProfile = isOwner && isAccountApproved(user);
-  const profileBannerUrl = profile.user.banner_url || 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80';
   const normalizedSocialListQuery = normalizeGenre(socialListQuery);
   const visibleSocialUsers = socialUsers.filter((person) => (
     normalizeGenre(`${person.full_name} ${person.username}`).includes(normalizedSocialListQuery)
   ));
   const normalizedProfileReviewQuery = normalizeGenre(profileReviewQuery);
-  const visibleProfileReviews = profile.reviews.filter((review) => (
+  const visibleProfileReviews = (profile?.reviews || []).filter((review) => (
     (!normalizedProfileReviewQuery || normalizeGenre(`${review.release_title} ${review.artist_name} ${review.review_text}`).includes(normalizedProfileReviewQuery))
     && (profileReviewRatingFilter === 'all' || Number(review.rating || 0) >= Number(profileReviewRatingFilter))
   ));
   const normalizedProfilePlaylistQuery = normalizeGenre(profilePlaylistQuery);
-  const visibleProfilePlaylists = profile.playlists.filter((playlist) => (
+  const visibleProfilePlaylists = (profile?.playlists || []).filter((playlist) => (
     !normalizedProfilePlaylistQuery
     || normalizeGenre(`${playlist.name} ${playlist.description}`).includes(normalizedProfilePlaylistQuery)
   ));
   const normalizedFavoriteQuery = normalizeGenre(favoriteQuery);
-  const visibleFavorites = profile.favorites.filter((favorite) => (
+  const visibleFavorites = (profile?.favorites || []).filter((favorite) => (
     !normalizedFavoriteQuery
     || normalizeGenre(`${favorite.track_title} ${favorite.release_title} ${favorite.artist_name}`).includes(normalizedFavoriteQuery)
   ));
+
+  const profileSocialFeed = useProgressiveList(visibleSocialUsers, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${socialListMode}|${normalizedSocialListQuery}`,
+  });
+  const profileReviewFeed = useProgressiveList(visibleProfileReviews, {
+    initialCount: 10,
+    mobileInitialCount: 6,
+    step: 10,
+    mobileStep: 6,
+    resetKey: `${userId || user?.id}|${activeTab}|${normalizedProfileReviewQuery}|${profileReviewRatingFilter}`,
+  });
+  const profilePlaylistFeed = useProgressiveList(visibleProfilePlaylists, {
+    initialCount: 12,
+    mobileInitialCount: 6,
+    step: 12,
+    mobileStep: 6,
+    resetKey: `${userId || user?.id}|${activeTab}|${normalizedProfilePlaylistQuery}`,
+  });
+  const profileFavoriteFeed = useProgressiveList(visibleFavorites, {
+    initialCount: 12,
+    mobileInitialCount: 6,
+    step: 12,
+    mobileStep: 6,
+    resetKey: `${userId || user?.id}|${activeTab}|${normalizedFavoriteQuery}`,
+  });
+
+  if (!profile) return <div className="loading-panel">Carregando perfil…</div>;
+
+  const isOwner = Number(user?.id) === Number(profile.user.id);
+  const canManageProfile = isOwner && isAccountApproved(user);
+  const profileBannerUrl = profile.user.banner_url || 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80';
   const getRelationshipLabel = (person) => {
     if (person.is_following && person.is_follower) return 'Amigos';
     if (person.is_following) return 'Seguindo';
@@ -4038,20 +4444,23 @@ function ProfilePage() {
           ) : socialListError ? (
             <p className="error-text" role="alert">{socialListError}</p>
           ) : visibleSocialUsers.length ? (
-            <div className="profile-social-user-list">
-              {visibleSocialUsers.map((person) => (
-                <article key={person.id} className="profile-social-user">
-                  <Link to={`/profile/${person.id}`} className="social-user-link">
-                    <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                    <span className="social-user-copy">
-                      <strong>{person.full_name || person.username}</strong>
-                      <small>@{person.username}</small>
-                    </span>
-                  </Link>
-                  <FollowButton userId={person.id} initialFollowing={Boolean(person.followed_by_user)} />
-                </article>
-              ))}
-            </div>
+            <>
+              <div className="profile-social-user-list">
+                {profileSocialFeed.visibleItems.map((person) => (
+                  <article key={person.id} className="profile-social-user">
+                    <Link to={`/profile/${person.id}`} className="social-user-link">
+                      <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
+                      <span className="social-user-copy">
+                        <strong>{person.full_name || person.username}</strong>
+                        <small>@{person.username}</small>
+                      </span>
+                    </Link>
+                    <FollowButton userId={person.id} initialFollowing={Boolean(person.followed_by_user)} />
+                  </article>
+                ))}
+              </div>
+              <ProgressiveListTrigger {...profileSocialFeed} label="Carregar mais pessoas" />
+            </>
           ) : socialUsers.length ? (
             <p className="profile-social-list-message">Nenhuma pessoa corresponde à busca.</p>
           ) : (
@@ -4167,35 +4576,46 @@ function ProfilePage() {
             </select>
           </div>
           {visibleProfileReviews.length ? (
-            <div className="profile-review-list">
-              {visibleProfileReviews.map((review) => (
-                <article key={review.id} className="profile-review-card glass-panel">
-                  <Link to={`/releases/${review.release_id}`} className="profile-review-artwork" aria-label={`Abrir ${review.release_title}`}>
-                    <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                  </Link>
-                  <div className="profile-review-copy">
-                    <div className="profile-review-heading">
-                      <div>
-                        <span className="eyebrow">{review.artist_name || 'Lançamento'}</span>
-                        <Link to={`/releases/${review.release_id}`} className="profile-review-title">{review.release_title}</Link>
+            <>
+              <div className="profile-review-list">
+                {profileReviewFeed.visibleItems.map((review) => (
+                  <article key={review.id} className="profile-review-card glass-panel">
+                    <Link to={`/releases/${review.release_id}`} className="profile-review-artwork" aria-label={`Abrir ${review.release_title}`}>
+                      <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
+                    </Link>
+                    <div className="profile-review-copy">
+                      <div className="profile-review-heading">
+                        <div>
+                          <span className="eyebrow">{review.artist_name || 'Lançamento'}</span>
+                          <Link to={`/releases/${review.release_id}`} className="profile-review-title">{review.release_title}</Link>
+                        </div>
+                        <RatingBadge value={review.rating} />
                       </div>
-                      <RatingBadge value={review.rating} />
+                      <p>{review.review_text || 'Sem comentário escrito.'}</p>
+                      {review.gif_url && <ReviewGif src={review.gif_url} />}
+                      <small>{review.created_at}</small>
+                      <ReviewLikeButton review={review} user={user} />
+                      <ShareReviewButton review={review} user={user} />
+                      <StoryShareButton
+                        review={{
+                          ...review,
+                          avatar_url: profile.user.avatar_url,
+                          full_name: profile.user.full_name,
+                          username: profile.user.username,
+                        }}
+                      />
+                      <ReviewOwnerActions
+                        review={review}
+                        user={user}
+                        onUpdated={handleReviewUpdated}
+                        onDeleted={handleReviewDeleted}
+                      />
                     </div>
-                    <p>{review.review_text || 'Sem comentário escrito.'}</p>
-                    {review.gif_url && <ReviewGif src={review.gif_url} />}
-                    <small>{review.created_at}</small>
-                    <ReviewLikeButton review={review} user={user} />
-                    <ShareReviewButton review={review} user={user} />
-                    <ReviewOwnerActions
-                      review={review}
-                      user={user}
-                      onUpdated={handleReviewUpdated}
-                      onDeleted={handleReviewDeleted}
-                    />
-                  </div>
-                </article>
-              ))}
-            </div>
+                  </article>
+                ))}
+              </div>
+              <ProgressiveListTrigger {...profileReviewFeed} label="Carregar mais avaliações" />
+            </>
           ) : profile.reviews.length ? (
             <p className="explore-empty-state">Nenhuma avaliação corresponde aos filtros.</p>
           ) : (
@@ -4329,22 +4749,25 @@ function ProfilePage() {
             />
           </div>
           {visibleProfilePlaylists.length ? (
-            <div className="profile-playlist-grid">
-              {visibleProfilePlaylists.map((playlist) => (
-                <Link to={`/playlists/${playlist.id}`} key={playlist.id} className="profile-playlist-card glass-panel">
-                  <div className="profile-playlist-artwork">
-                    <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                    <span aria-hidden="true">♫</span>
-                  </div>
-                  <div className="profile-playlist-copy">
-                    <h3>{playlist.name}</h3>
-                    <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
-                    <small>{Number(playlist.track_count || 0)} {Number(playlist.track_count || 0) === 1 ? 'música' : 'músicas'}</small>
-                  </div>
-                  <span className="profile-playlist-open" aria-hidden="true">↗</span>
-                </Link>
-              ))}
-            </div>
+            <>
+              <div className="profile-playlist-grid">
+                {profilePlaylistFeed.visibleItems.map((playlist) => (
+                  <Link to={`/playlists/${playlist.id}`} key={playlist.id} className="profile-playlist-card glass-panel">
+                    <div className="profile-playlist-artwork">
+                      <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
+                      <span aria-hidden="true">♫</span>
+                    </div>
+                    <div className="profile-playlist-copy">
+                      <h3>{playlist.name}</h3>
+                      <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
+                      <small>{Number(playlist.track_count || 0)} {Number(playlist.track_count || 0) === 1 ? 'música' : 'músicas'}</small>
+                    </div>
+                    <span className="profile-playlist-open" aria-hidden="true">↗</span>
+                  </Link>
+                ))}
+              </div>
+              <ProgressiveListTrigger {...profilePlaylistFeed} label="Carregar mais playlists" />
+            </>
           ) : profile.playlists.length ? (
             <p className="explore-empty-state">Nenhuma playlist corresponde à busca.</p>
           ) : (
@@ -4376,20 +4799,23 @@ function ProfilePage() {
             />
           </div>
           {visibleFavorites.length ? (
-            <div className="profile-favorite-grid">
-              {visibleFavorites.map((favorite) => (
-                <Link key={favorite.id} to={`/releases/${favorite.release_id}`} className="profile-favorite-card glass-panel">
-                  <img src={favorite.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
-                  <div>
-                    <span className="profile-favorite-heart" aria-hidden="true">♥</span>
-                    <h3>{favorite.track_title}</h3>
-                    <p>{favorite.artist_name}</p>
-                    <small>{favorite.release_title}</small>
-                  </div>
-                  <span className="profile-favorite-open" aria-hidden="true">↗</span>
-                </Link>
-              ))}
-            </div>
+            <>
+              <div className="profile-favorite-grid">
+                {profileFavoriteFeed.visibleItems.map((favorite) => (
+                  <Link key={favorite.id} to={`/releases/${favorite.release_id}`} className="profile-favorite-card glass-panel">
+                    <img src={favorite.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
+                    <div>
+                      <span className="profile-favorite-heart" aria-hidden="true">♥</span>
+                      <h3>{favorite.track_title}</h3>
+                      <p>{favorite.artist_name}</p>
+                      <small>{favorite.release_title}</small>
+                    </div>
+                    <span className="profile-favorite-open" aria-hidden="true">↗</span>
+                  </Link>
+                ))}
+              </div>
+              <ProgressiveListTrigger {...profileFavoriteFeed} label="Carregar mais curtidas" />
+            </>
           ) : profile.favorites.length ? (
             <p className="explore-empty-state">Nenhuma música corresponde à busca.</p>
           ) : (
@@ -5284,6 +5710,48 @@ function AdminPage() {
     !normalizedFeaturedListQuery
     || normalizeGenre(`${featured.title} ${featured.artist_name} ${featured.description}`).includes(normalizedFeaturedListQuery)
   ));
+  const adminArtistsFeed = useProgressiveList(filteredAdminArtists, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${activeAdminSection}|${normalizedArtistListQuery}|${artistListGenre}`,
+  });
+  const adminReleasesFeed = useProgressiveList(filteredAdminReleases, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${activeAdminSection}|${normalizedReleaseListQuery}|${releaseListType}`,
+  });
+  const adminFeaturedFeed = useProgressiveList(filteredFeaturedList, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${activeAdminSection}|${normalizedFeaturedListQuery}`,
+  });
+  const adminApprovalsFeed = useProgressiveList(adminUsers, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: activeAdminSection,
+  });
+  const adminModerationUsersFeed = useProgressiveList(filteredAdminUsers, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${activeAdminSection}|${moderationSearch}|${moderationUserStatus}`,
+  });
+  const adminModerationReviewsFeed = useProgressiveList(filteredAdminReviews, {
+    initialCount: 16,
+    mobileInitialCount: 8,
+    step: 16,
+    mobileStep: 8,
+    resetKey: `${activeAdminSection}|${moderationSearch}|${moderationReviewRating}`,
+  });
   const selectedReleaseGenres = splitGenreNames(releaseForm.genre).map(normalizeGenre);
 
   return (
@@ -5663,9 +6131,9 @@ function AdminPage() {
               </select>
             </div>
             <div className="admin-list-grid">
-              {filteredAdminArtists.map((artist) => (
+              {adminArtistsFeed.visibleItems.map((artist) => (
                 <div key={artist.id} className="admin-list-item">
-                  <img src={artist.image_url || artist.banner_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt="" />
+                  <img src={artist.image_url || artist.banner_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} loading="lazy" decoding="async" alt="" />
                   <div className="admin-list-copy">
                     <strong>{artist.name}</strong>
                     <small>{artist.genre_names || artist.genre || 'Sem gênero'}</small>
@@ -5678,6 +6146,7 @@ function AdminPage() {
               ))}
               {!filteredAdminArtists.length && <p className="admin-empty-state">{artistList.length ? 'Nenhum artista corresponde aos filtros.' : 'Nenhum artista cadastrado ainda.'}</p>}
             </div>
+            <ProgressiveListTrigger {...adminArtistsFeed} label="Carregar mais artistas" />
           </div>
 
           <div className="admin-listing-panel glass-panel">
@@ -5698,9 +6167,9 @@ function AdminPage() {
               </select>
             </div>
             <div className="admin-list-grid">
-              {filteredAdminReleases.map((release) => (
+              {adminReleasesFeed.visibleItems.map((release) => (
                 <div key={release.id} className="admin-list-item">
-                  <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
+                  <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} loading="lazy" decoding="async" alt="" />
                   <div className="admin-list-copy">
                     <strong>{release.title}</strong>
                     <small>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')} · {release.release_type}</small>
@@ -5713,6 +6182,7 @@ function AdminPage() {
               ))}
               {!filteredAdminReleases.length && <p className="admin-empty-state">{releaseList.length ? 'Nenhum lançamento corresponde aos filtros.' : 'Nenhum lançamento cadastrado ainda.'}</p>}
             </div>
+            <ProgressiveListTrigger {...adminReleasesFeed} label="Carregar mais lançamentos" />
           </div>
         </section>
       )}
@@ -5797,11 +6267,13 @@ function AdminPage() {
           />
         </div>
         <div className="admin-list-grid">
-          {filteredFeaturedList.map((featured) => (
+          {adminFeaturedFeed.visibleItems.map((featured) => (
             <div key={featured.id} className="admin-list-item featured-admin-list-item">
               <img
                 src={featured.banner_url || featured.cover_url || getReleaseFallbackImage(featured)}
                 onError={(event) => handleImageError(event, featured.cover_url || getReleaseFallbackImage(featured))}
+                loading="lazy"
+                decoding="async"
                 alt=""
               />
               <div className="featured-admin-copy">
@@ -5821,6 +6293,7 @@ function AdminPage() {
           ))}
           {!filteredFeaturedList.length && <p className="admin-empty-state">{featuredList.length ? 'Nenhum destaque corresponde à busca.' : 'Nenhum destaque publicado ainda. Use o formulário acima para criar o primeiro.'}</p>}
         </div>
+        <ProgressiveListTrigger {...adminFeaturedFeed} label="Carregar mais destaques" />
           </div>
         </section>
       )}
@@ -5869,12 +6342,14 @@ function AdminPage() {
           <div className="admin-listing-panel glass-panel">
             <div className="admin-list-grid">
               {isLoadingModeration && <p className="admin-empty-state">Carregando perfis pendentes…</p>}
-              {!isLoadingModeration && adminUsers.map((adminUser) => (
+              {!isLoadingModeration && adminApprovalsFeed.visibleItems.map((adminUser) => (
                 <article key={adminUser.id} className="admin-list-item approval-user">
                   <img
                     className="approval-user-avatar"
                     src={adminUser.avatar_url || imagePlaceholder}
                     onError={(event) => handleImageError(event, imagePlaceholder)}
+                    loading="lazy"
+                    decoding="async"
                     alt=""
                   />
                   <div className="admin-list-copy">
@@ -5895,6 +6370,7 @@ function AdminPage() {
                 <p className="admin-empty-state">Não há perfis aguardando aprovação.</p>
               )}
             </div>
+            {!isLoadingModeration && <ProgressiveListTrigger {...adminApprovalsFeed} label="Carregar mais perfis" />}
           </div>
         </section>
       )}
@@ -5931,7 +6407,7 @@ function AdminPage() {
               </div>
               <div className="admin-list-grid">
                 {isLoadingModeration && <p className="admin-empty-state">Carregando perfis…</p>}
-                {!isLoadingModeration && filteredAdminUsers.map((adminUser) => (
+                {!isLoadingModeration && adminModerationUsersFeed.visibleItems.map((adminUser) => (
                   <div key={adminUser.id} className={`admin-list-item moderation-user${adminUser.is_suspended ? ' is-suspended' : ''}`}>
                     <div className="moderation-avatar" aria-hidden="true">
                       {(adminUser.full_name || adminUser.username || '?').slice(0, 1).toLocaleUpperCase()}
@@ -5952,6 +6428,7 @@ function AdminPage() {
                 ))}
                 {!isLoadingModeration && !filteredAdminUsers.length && <p className="admin-empty-state">Nenhum perfil corresponde à busca.</p>}
               </div>
+              {!isLoadingModeration && <ProgressiveListTrigger {...adminModerationUsersFeed} label="Carregar mais perfis" />}
             </div>
 
             <div className="admin-listing-panel glass-panel">
@@ -5967,20 +6444,21 @@ function AdminPage() {
               </div>
               <div className="admin-list-grid">
                 {isLoadingModeration && <p className="admin-empty-state">Carregando resenhas…</p>}
-                {!isLoadingModeration && filteredAdminReviews.map((review) => (
+                {!isLoadingModeration && adminModerationReviewsFeed.visibleItems.map((review) => (
                   <article key={review.id} className="admin-list-item moderation-review">
-                    {review.release_cover ? <img src={review.release_cover} alt="" /> : <div className="moderation-avatar">♪</div>}
+                    {review.release_cover ? <img src={review.release_cover} loading="lazy" decoding="async" alt="" /> : <div className="moderation-avatar">♪</div>}
                     <div className="admin-list-copy">
                       <strong>{review.release_title} · {review.artist_name}</strong>
                       <small>{review.full_name || review.username} · nota {review.rating}/10</small>
                       <p>{review.review_text || 'Resenha sem texto'}</p>
-                      {review.gif_url && <img className="moderation-review-gif" src={review.gif_url} alt="GIF anexado à resenha" />}
+                      {review.gif_url && <img className="moderation-review-gif" src={review.gif_url} loading="lazy" decoding="async" alt="GIF anexado à resenha" />}
                     </div>
                     <button type="button" className="danger-btn compact-btn" onClick={() => handleAdminReviewDelete(review)}>Remover resenha</button>
                   </article>
                 ))}
                 {!isLoadingModeration && !filteredAdminReviews.length && <p className="admin-empty-state">Nenhuma resenha corresponde à busca.</p>}
               </div>
+              {!isLoadingModeration && <ProgressiveListTrigger {...adminModerationReviewsFeed} label="Carregar mais resenhas" />}
             </div>
           </div>
         </section>
