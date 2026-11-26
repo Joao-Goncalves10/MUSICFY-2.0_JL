@@ -2434,10 +2434,23 @@ function ChatPage() {
 
   const formatMessageTime = (value) => {
     if (!value) return '';
-    const parsedDate = new Date(String(value).replace(' ', 'T'));
+    const rawValue = String(value).trim();
+    // O backend usa dateStrings:true e o banco retorna UTC sem o sufixo Z.
+    // Sem explicitar o fuso, o navegador interpreta o horário como local e o chat fica adiantado.
+    const normalizedValue = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(rawValue)
+      ? `${rawValue.replace(' ', 'T')}Z`
+      : rawValue.replace(' ', 'T');
+    const parsedDate = new Date(normalizedValue);
     return Number.isNaN(parsedDate.getTime())
       ? String(value)
-      : parsedDate.toLocaleString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      : parsedDate.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
   };
 
   return (
