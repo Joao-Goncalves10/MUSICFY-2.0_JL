@@ -2233,7 +2233,7 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
       FROM playlist_collaborators pc
       WHERE pc.playlist_id = p.id
         AND pc.user_id = ?
-        AND pc.status = 'ACCEPTED'
+        AND UPPER(pc.status) = 'ACCEPTED'
     )
     ORDER BY p.created_at DESC
   `, [userId, userId]);
@@ -2457,7 +2457,7 @@ const getPlaylistAccess = async (playlistId, userId = 0) => {
       (p.user_id = ?) AS is_owner,
       EXISTS (
         SELECT 1 FROM playlist_collaborators pc
-        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND UPPER(pc.status) = 'ACCEPTED'
       ) AS is_collaborator
     FROM playlists p
     WHERE p.id = ?
@@ -2486,12 +2486,12 @@ app.get('/api/playlists', requireAuth, async (req, res) => {
       (p.user_id = ?) AS is_owner,
       EXISTS (
         SELECT 1 FROM playlist_collaborators pc
-        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND UPPER(pc.status) = 'ACCEPTED'
       ) AS is_collaborator
     FROM playlists p
     WHERE p.user_id = ? OR EXISTS (
       SELECT 1 FROM playlist_collaborators pc
-      WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+      WHERE pc.playlist_id = p.id AND pc.user_id = ? AND UPPER(pc.status) = 'ACCEPTED'
     )
     ORDER BY p.created_at DESC, p.id DESC
   `, [req.user.id, req.user.id, req.user.id, req.user.id]);
@@ -2520,7 +2520,7 @@ app.get('/api/playlists/:playlistId', optionalAuth, async (req, res) => {
     JOIN users u ON u.id = pc.user_id
     LEFT JOIN users inviter ON inviter.id = pc.invited_by_user_id
     WHERE pc.playlist_id = ?
-      AND (pc.status = 'ACCEPTED' OR (? = 1 AND ? = ?))
+      AND (UPPER(pc.status) = 'ACCEPTED' OR (? = 1 AND ? = ?))
     ORDER BY pc.status ASC, pc.created_at ASC, pc.id ASC
   `, [playlistId, access?.is_owner ? 1 : 0, access?.is_owner ? playlist.user_id : 0, playlist.user_id]);
 
