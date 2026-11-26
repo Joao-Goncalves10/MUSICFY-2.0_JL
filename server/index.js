@@ -1268,6 +1268,7 @@ app.delete('/api/artists/:id', requireAuth, requireAdmin, async (req, res) => {
 app.get('/api/releases', async (req, res) => {
   const rows = await allDb(`
     SELECT r.*, a.name AS artist_name, a.image_url AS artist_image,
+      a.accent_color AS artist_accent_color,
       rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
@@ -1286,7 +1287,7 @@ app.get('/api/releases', async (req, res) => {
 
 app.get('/api/releases/:id', async (req, res) => {
   const release = await getDb(`
-    SELECT r.*, a.name AS artist_name,
+    SELECT r.*, a.name AS artist_name, a.accent_color AS artist_accent_color,
       rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
@@ -2082,7 +2083,9 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
   }
 
   const reviews = await allDb(`
-    SELECT rv.*, rm.gif_url, r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
+    SELECT rv.*, rm.gif_url, r.title AS release_title, r.cover_url AS release_cover,
+      r.accent_color, r.genre AS release_genre,
+      a.name AS artist_name, a.accent_color AS artist_accent_color,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
@@ -2143,7 +2146,7 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
 
 app.get('/api/explore', optionalAuth, async (req, res) => {
   const featured = await allDb(`
-    SELECT fr.sort_order, r.*, a.name as artist_name
+    SELECT fr.sort_order, r.*, a.name as artist_name, a.accent_color AS artist_accent_color
     FROM featured_releases fr
     JOIN releases r ON r.id = fr.release_id
     JOIN artists a ON a.id = r.artist_id
@@ -2151,7 +2154,7 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
   `);
 
   const recent = await allDb(`
-    SELECT r.*, a.name AS artist_name
+    SELECT r.*, a.name AS artist_name, a.accent_color AS artist_accent_color
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
     ORDER BY r.release_date DESC
@@ -2160,6 +2163,7 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
 
   const releases = await allDb(`
     SELECT r.*, a.name AS artist_name, a.image_url AS artist_image,
+      a.accent_color AS artist_accent_color,
       rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
@@ -2183,7 +2187,9 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
 
   const reviews = await allDb(`
     SELECT rv.*, rm.gif_url, u.username, u.full_name, u.avatar_url,
-      r.title AS release_title, r.cover_url AS cover_url, a.name AS artist_name,
+      r.title AS release_title, r.cover_url AS cover_url,
+      r.accent_color, r.genre AS release_genre,
+      a.name AS artist_name, a.accent_color AS artist_accent_color,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
@@ -2212,7 +2218,8 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
     SELECT fr.id, fr.release_id,
       COALESCE(NULLIF(fr.banner_url, ''), r.cover_url, '') AS banner_url,
       COALESCE(fr.description, '') AS description, fr.sort_order,
-      r.title, r.cover_url, r.release_type, a.name AS artist_name
+      r.title, r.cover_url, r.release_type, r.accent_color,
+      a.name AS artist_name, a.accent_color AS artist_accent_color
     FROM featured_releases fr
     JOIN releases r ON r.id = fr.release_id
     JOIN artists a ON a.id = r.artist_id
@@ -2220,7 +2227,7 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
   `);
 
   const recentReleases = await allDb(`
-    SELECT r.*, a.name AS artist_name
+    SELECT r.*, a.name AS artist_name, a.accent_color AS artist_accent_color
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
     WHERE r.status = 'ACTIVE'
@@ -2252,7 +2259,9 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
     : [0];
   const reviews = await allDb(`
     SELECT rv.*, rm.gif_url, u.username, u.full_name, u.avatar_url,
-      r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
+      r.title AS release_title, r.cover_url AS release_cover,
+      r.accent_color, r.genre AS release_genre,
+      a.name AS artist_name, a.accent_color AS artist_accent_color,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
@@ -2272,7 +2281,9 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
   if (req.user) {
     followingReviews = await allDb(`
       SELECT rv.*, rm.gif_url, u.username, u.full_name, u.avatar_url,
-        r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
+        r.title AS release_title, r.cover_url AS release_cover,
+        r.accent_color, r.genre AS release_genre,
+        a.name AS artist_name, a.accent_color AS artist_accent_color,
         (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
         EXISTS (
           SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
