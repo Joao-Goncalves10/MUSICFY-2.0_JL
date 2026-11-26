@@ -3637,6 +3637,11 @@ function PlaylistPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReordering, setIsReordering] = useState(false);
+  const [collaboratorQuery, setCollaboratorQuery] = useState('');
+  const [collaboratorResults, setCollaboratorResults] = useState([]);
+  const [isLoadingCollaborators, setIsLoadingCollaborators] = useState(false);
+  const [isInvitingCollaborator, setIsInvitingCollaborator] = useState(false);
+  const [collaboratorMessage, setCollaboratorMessage] = useState('');
   const [form, setForm] = useState({ name: '', description: '', cover_url: '' });
 
   useEffect(() => {
@@ -3669,6 +3674,38 @@ function PlaylistPage() {
     && isAccountApproved(user)
     && playlistData?.permissions?.can_edit_tracks
   );
+
+  useEffect(() => {
+    const query = collaboratorQuery.trim();
+    if (!canManagePlaylist || query.length < 2) {
+      setCollaboratorResults([]);
+      setIsLoadingCollaborators(false);
+      return undefined;
+    }
+    let active = true;
+    setIsLoadingCollaborators(true);
+    const timer = window.setTimeout(() => {
+      api.get('/users', { params: { q: query } })
+        .then((response) => {
+          if (!active) return;
+          const existingIds = new Set((playlistData?.collaborators || []).map((person) => Number(person.user_id)));
+          setCollaboratorResults((response.data || []).filter((person) => (
+            Number(person.id) !== Number(user?.id) && !existingIds.has(Number(person.id))
+          )));
+        })
+        .catch(() => {
+          if (active) setCollaboratorResults([]);
+        })
+        .finally(() => {
+          if (active) setIsLoadingCollaborators(false);
+        });
+    }, 220);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [collaboratorQuery, canManagePlaylist, playlistData?.collaborators, user?.id]);
+
   const reloadPlaylist = async () => {
     const response = await api.get(`/playlists/${playlistId}`);
     setPlaylistData(response.data);
@@ -3691,6 +3728,23 @@ function PlaylistPage() {
       setActionError(requestError.response?.data?.error || 'Não foi possível salvar as alterações.');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const inviteCollaborator = async (person) => {
+    setIsInvitingCollaborator(true);
+    setActionError('');
+    setCollaboratorMessage('');
+    try {
+      await api.post(`/playlists/${playlistId}/collaborators`, { user_id: person.id });
+      setCollaboratorQuery('');
+      setCollaboratorResults([]);
+      setCollaboratorMessage(`Convite enviado para @${person.username}.`);
+      await reloadPlaylist();
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.error || 'Não foi possível enviar o convite.');
+    } finally {
+      setIsInvitingCollaborator(false);
     }
   };
 
@@ -3834,6 +3888,45 @@ function PlaylistPage() {
               <div>
                 {pendingCollaborators.map((person) => <small key={person.id}>@{person.username}</small>)}
               </div>
+            </div>
+          )}
+          {canManagePlaylist && (
+            <div className="playlist-invite-picker playlist-add-collaborator">
+              <div className="playlist-invite-heading">
+                <div>
+                  <strong>Adicionar colaborador</strong>
+                  <span>Convide alguém mesmo depois de criar a playlist.</span>
+                </div>
+              </div>
+              <input
+                type="search"
+                value={collaboratorQuery}
+                onChange={(event) => {
+                  setCollaboratorQuery(event.target.value);
+                  setCollaboratorMessage('');
+                }}
+                placeholder="Pesquisar por nome ou @usuário"
+                aria-label="Pesquisar colaborador"
+                disabled={isInvitingCollaborator}
+              />
+              {(isLoadingCollaborators || collaboratorResults.length > 0) && (
+                <div className="playlist-invite-results">
+                  {isLoadingCollaborators ? (
+                    <p>Buscando pessoas…</p>
+                  ) : collaboratorResults.length ? collaboratorResults.map((person) => (
+                    <button key={person.id} type="button" className="playlist-invite-result" onClick={() => void inviteCollaborator(person)} disabled={isInvitingCollaborator}>
+                      <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                      <span>
+                        <strong>{person.full_name || person.username}</strong>
+                        <small>@{person.username}</small>
+                      </span>
+                      <b aria-hidden="true">+</b>
+                    </button>
+                  )) : <p>Nenhuma pessoa disponível para convidar.</p>}
+                </div>
+              )}
+              {collaboratorQuery.trim().length === 1 && <small className="playlist-invite-hint">Digite pelo menos 2 caracteres para pesquisar.</small>}
+              {collaboratorMessage && <small className="playlist-invite-success" role="status">{collaboratorMessage}</small>}
             </div>
           )}
         </section>

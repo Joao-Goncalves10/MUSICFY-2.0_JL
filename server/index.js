@@ -1039,32 +1039,6 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   return res.json({ user: normalizeUser(user) });
 });
 
-app.get('/api/search', async (req, res) => {
-  const searchTerm = String(req.query.q || '').trim();
-  if (!searchTerm) return res.json({ artists: [], releases: [] });
-
-  const searchPattern = `%${searchTerm}%`;
-  const [artists, releases] = await Promise.all([
-    allDb(`
-      SELECT id, name, image_url, accent_color
-      FROM artists
-      WHERE name LIKE ?
-      ORDER BY name ASC
-      LIMIT 5
-    `, [searchPattern]),
-    allDb(`
-      SELECT r.id, r.title, r.cover_url, r.release_type, a.name AS artist_name
-      FROM releases r
-      JOIN artists a ON a.id = r.artist_id
-      WHERE r.title LIKE ? OR a.name LIKE ?
-      ORDER BY r.release_date DESC, r.id DESC
-      LIMIT 5
-    `, [searchPattern, searchPattern]),
-  ]);
-
-  return res.json({ artists, releases });
-});
-
 app.get('/api/artists', async (req, res) => {
   const rows = await allDb(`
     SELECT a.*,
@@ -2647,6 +2621,77 @@ app.post('/api/playlists', requireAuth, async (req, res) => {
     connection.release();
   }
   return res.status(201).json({ message: 'Playlist created.', playlistId });
+});
+
+app.post('/api/playlists/:playlistId/collaborators', requireAuth, async (req, res) => {
+  const playlistId = parsePositiveId(req.params.playlistId);
+  const invitedUserId = parsePositiveId(req.body?.user_id);
+  if (!playlistId || !invitedUserId) return res.status(400).json({ error: 'Playlist and user are required.' });
+
+  const access = await getPlaylistAccess(playlistId, req.user.id);
+  if (!access?.is_owner) return res.status(404).json({ error: 'Playlist not found.' });
+  if (invitedUserId === Number(req.user.id)) {
+    return res.status(400).json({ error: 'You cannot invite yourself to your own playlist.' });
+  }
+
+  const invitee = await getDb(
+    'SELECT id, username, full_name FROM users WHERE id = ? AND is_suspended = 0 AND is_approved = 1',
+    [invitedUserId]
+  );
+  if (!invitee) return res.status(400).json({ error: 'This person is no longer available.' });
+  const playlist = await getDb('SELECT id, name FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+
+  const existing = await getDb(
+    'SELECT id, status FROM playlist_collaborators WHERE playlist_id = ? AND user_id = ?',
+    [playlistId, invitedUserId]
+  );
+  if (existing && String(existing.status).toUpperCase() === 'ACCEPTED') {
+    return res.status(409).json({ error: 'This person is already a collaborator.' });
+  }
+  if (existing && String(existing.status).toUpperCase() === 'PENDING') {
+    return res.status(409).json({ error: 'There is already a pending invitation for this person.' });
+  }
+
+  const inviter = await getDb('SELECT username, full_name FROM users WHERE id = ?', [req.user.id]);
+  const inviterName = inviter?.full_name || inviter?.username || 'Alguém';
+  const connection = await db.getConnection();
+  let collaboratorId;
+  try {
+    await connection.beginTransaction();
+    if (existing) {
+      await connection.execute(
+        `UPDATE playlist_collaborators
+         SET invited_by_user_id = ?, status = 'PENDING', created_at = CURRENT_TIMESTAMP, responded_at = NULL
+         WHERE id = ? AND playlist_id = ? AND user_id = ?`,
+        [req.user.id, existing.id, playlistId, invitedUserId]
+      );
+      collaboratorId = Number(existing.id);
+    } else {
+      const [collaboratorResult] = await connection.execute(
+        `INSERT INTO playlist_collaborators (playlist_id, user_id, invited_by_user_id, status)
+         VALUES (?, ?, ?, 'PENDING')`,
+        [playlistId, invitedUserId, req.user.id]
+      );
+      collaboratorId = Number(collaboratorResult.insertId);
+    }
+    await createNotificationOnConnection(
+      connection,
+      invitedUserId,
+      'PLAYLIST_INVITE',
+      `${inviterName} convidou você para colaborar na playlist “${playlist.name}”.`,
+      `/playlists/${playlistId}`,
+      req.user.id,
+      collaboratorId
+    );
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return res.status(201).json({ message: 'Invitation sent.', collaboratorId });
 });
 
 app.put('/api/playlists/:playlistId', requireAuth, async (req, res) => {
