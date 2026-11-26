@@ -1039,6 +1039,32 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
   return res.json({ user: normalizeUser(user) });
 });
 
+app.get('/api/search', async (req, res) => {
+  const searchTerm = String(req.query.q || '').trim();
+  if (!searchTerm) return res.json({ artists: [], releases: [] });
+
+  const searchPattern = `%${searchTerm}%`;
+  const [artists, releases] = await Promise.all([
+    allDb(`
+      SELECT id, name, image_url, accent_color
+      FROM artists
+      WHERE name LIKE ?
+      ORDER BY name ASC
+      LIMIT 5
+    `, [searchPattern]),
+    allDb(`
+      SELECT r.id, r.title, r.cover_url, r.release_type, a.name AS artist_name
+      FROM releases r
+      JOIN artists a ON a.id = r.artist_id
+      WHERE r.title LIKE ? OR a.name LIKE ?
+      ORDER BY r.release_date DESC, r.id DESC
+      LIMIT 5
+    `, [searchPattern, searchPattern]),
+  ]);
+
+  return res.json({ artists, releases });
+});
+
 app.get('/api/artists', async (req, res) => {
   const rows = await allDb(`
     SELECT a.*,

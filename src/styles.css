@@ -7902,6 +7902,71 @@ textarea {
   background: var(--glass-soft);
 }
 
+.search-results a {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.search-result-image {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--glass-soft);
+}
+
+.search-result-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.search-result-copy strong,
+.search-result-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-copy small {
+  color: var(--text);
+  opacity: 0.68;
+  font-size: 0.78rem;
+}
+
+.search-result-type {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--primary);
+  background: var(--glass-soft);
+}
+
+.search-result-type svg {
+  width: 15px;
+  height: 15px;
+}
+
+.search-feedback {
+  margin: 0;
+  padding: 0.75rem;
+  color: var(--text);
+  opacity: 0.76;
+  font-size: 0.9rem;
+}
+
+.search-feedback.is-error {
+  color: #ff8e8e;
+  opacity: 1;
+}
+
 .profile-page .profile-hero .profile-copy,
 .profile-page .profile-hero .profile-copy h1,
 .profile-page .profile-hero .profile-copy p,
