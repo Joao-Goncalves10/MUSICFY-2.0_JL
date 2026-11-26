@@ -1412,7 +1412,6 @@ app.delete('/api/artists/:id', requireAuth, requireAdmin, async (req, res) => {
 app.get('/api/releases', async (req, res) => {
   const rows = await allDb(`
     SELECT r.*, a.name AS artist_name, a.image_url AS artist_image,
-      a.accent_color AS artist_accent_color,
       rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
@@ -1431,7 +1430,7 @@ app.get('/api/releases', async (req, res) => {
 
 app.get('/api/releases/:id', async (req, res) => {
   const release = await getDb(`
-    SELECT r.*, a.name AS artist_name, a.accent_color AS artist_accent_color,
+    SELECT r.*, a.name AS artist_name,
       rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
@@ -1920,24 +1919,19 @@ app.get('/api/messages/conversations', requireAuth, async (req, res) => {
         WHERE unread.sender_id = u.id AND unread.recipient_id = ? AND unread.read_at IS NULL
       ) AS unread_count
     FROM (
-      SELECT other_user_id, MAX(id) AS last_message_id
-      FROM (
-        SELECT recipient_id AS other_user_id, id
-        FROM direct_messages
-        WHERE sender_id = ?
-        UNION ALL
-        SELECT sender_id AS other_user_id, id
-        FROM direct_messages
-        WHERE recipient_id = ?
-      ) dm_peers
-      GROUP BY other_user_id
+      SELECT
+        CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS other_user_id,
+        MAX(id) AS last_message_id
+      FROM direct_messages
+      WHERE sender_id = ? OR recipient_id = ?
+      GROUP BY CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END
     ) latest
     JOIN direct_messages m ON m.id = latest.last_message_id
     JOIN users u ON u.id = latest.other_user_id
     WHERE u.is_suspended = 0 AND u.is_approved = 1
     ORDER BY m.id DESC
     LIMIT 100
-  `, [userId, userId, userId, userId]);
+  `, [userId, userId, userId, userId, userId, userId]);
   return res.json({ conversations });
 });
 
@@ -2322,9 +2316,7 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
   }
 
   const reviews = await allDb(`
-    SELECT rv.*, rm.gif_url, r.title AS release_title, r.cover_url AS release_cover,
-      r.accent_color, r.genre AS release_genre,
-      a.name AS artist_name, a.accent_color AS artist_accent_color,
+    SELECT rv.*, rm.gif_url, r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
@@ -2344,9 +2336,15 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
       WHERE pt.playlist_id = p.id
     ) AS track_count
     FROM playlists p
-    WHERE p.user_id = ?
+    WHERE p.user_id = ? OR EXISTS (
+      SELECT 1
+      FROM playlist_collaborators pc
+      WHERE pc.playlist_id = p.id
+        AND pc.user_id = ?
+        AND UPPER(pc.status) = 'ACCEPTED'
+    )
     ORDER BY p.created_at DESC
-  `, [userId]);
+  `, [userId, userId]);
   const favorites = await allDb(`
     SELECT f.*, t.title AS track_title, r.id AS release_id, r.title AS release_title,
       r.cover_url AS release_cover, a.name AS artist_name
@@ -2385,7 +2383,7 @@ app.put('/api/users/me', requireAuth, async (req, res) => {
 
 app.get('/api/explore', optionalAuth, async (req, res) => {
   const featured = await allDb(`
-    SELECT fr.sort_order, r.*, a.name as artist_name, a.accent_color AS artist_accent_color
+    SELECT fr.sort_order, r.*, a.name as artist_name
     FROM featured_releases fr
     JOIN releases r ON r.id = fr.release_id
     JOIN artists a ON a.id = r.artist_id
@@ -2393,7 +2391,7 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
   `);
 
   const recent = await allDb(`
-    SELECT r.*, a.name AS artist_name, a.accent_color AS artist_accent_color
+    SELECT r.*, a.name AS artist_name
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
     ORDER BY r.release_date DESC
@@ -2402,7 +2400,6 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
 
   const releases = await allDb(`
     SELECT r.*, a.name AS artist_name, a.image_url AS artist_image,
-      a.accent_color AS artist_accent_color,
       rv.avg_rating, COALESCE(rv.review_count, 0) AS review_count
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
@@ -2426,9 +2423,7 @@ app.get('/api/explore', optionalAuth, async (req, res) => {
 
   const reviews = await allDb(`
     SELECT rv.*, rm.gif_url, u.username, u.full_name, u.avatar_url,
-      r.title AS release_title, r.cover_url AS cover_url,
-      r.accent_color, r.genre AS release_genre,
-      a.name AS artist_name, a.accent_color AS artist_accent_color,
+      r.title AS release_title, r.cover_url AS cover_url, a.name AS artist_name,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
@@ -2457,8 +2452,7 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
     SELECT fr.id, fr.release_id,
       COALESCE(NULLIF(fr.banner_url, ''), r.cover_url, '') AS banner_url,
       COALESCE(fr.description, '') AS description, fr.sort_order,
-      r.title, r.cover_url, r.release_type, r.accent_color,
-      a.name AS artist_name, a.accent_color AS artist_accent_color
+      r.title, r.cover_url, r.release_type, a.name AS artist_name
     FROM featured_releases fr
     JOIN releases r ON r.id = fr.release_id
     JOIN artists a ON a.id = r.artist_id
@@ -2466,7 +2460,7 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
   `);
 
   const recentReleases = await allDb(`
-    SELECT r.*, a.name AS artist_name, a.accent_color AS artist_accent_color
+    SELECT r.*, a.name AS artist_name
     FROM releases r
     JOIN artists a ON a.id = r.artist_id
     WHERE r.status = 'ACTIVE'
@@ -2498,9 +2492,7 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
     : [0];
   const reviews = await allDb(`
     SELECT rv.*, rm.gif_url, u.username, u.full_name, u.avatar_url,
-      r.title AS release_title, r.cover_url AS release_cover,
-      r.accent_color, r.genre AS release_genre,
-      a.name AS artist_name, a.accent_color AS artist_accent_color,
+      r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
       (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
       EXISTS (
         SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
@@ -2520,9 +2512,7 @@ app.get('/api/home-feed', optionalAuth, async (req, res) => {
   if (req.user) {
     followingReviews = await allDb(`
       SELECT rv.*, rm.gif_url, u.username, u.full_name, u.avatar_url,
-        r.title AS release_title, r.cover_url AS release_cover,
-        r.accent_color, r.genre AS release_genre,
-        a.name AS artist_name, a.accent_color AS artist_accent_color,
+        r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name,
         (SELECT COUNT(*) FROM review_likes rl WHERE rl.review_id = rv.id) AS like_count,
         EXISTS (
           SELECT 1 FROM review_likes rl WHERE rl.review_id = rv.id AND rl.user_id = ?
@@ -2575,7 +2565,7 @@ const getPlaylistAccess = async (playlistId, userId = 0) => {
       (p.user_id = ?) AS is_owner,
       EXISTS (
         SELECT 1 FROM playlist_collaborators pc
-        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND UPPER(pc.status) = 'ACCEPTED'
       ) AS is_collaborator
     FROM playlists p
     WHERE p.id = ?
@@ -2604,12 +2594,12 @@ app.get('/api/playlists', requireAuth, async (req, res) => {
       (p.user_id = ?) AS is_owner,
       EXISTS (
         SELECT 1 FROM playlist_collaborators pc
-        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+        WHERE pc.playlist_id = p.id AND pc.user_id = ? AND UPPER(pc.status) = 'ACCEPTED'
       ) AS is_collaborator
     FROM playlists p
     WHERE p.user_id = ? OR EXISTS (
       SELECT 1 FROM playlist_collaborators pc
-      WHERE pc.playlist_id = p.id AND pc.user_id = ? AND pc.status = 'ACCEPTED'
+      WHERE pc.playlist_id = p.id AND pc.user_id = ? AND UPPER(pc.status) = 'ACCEPTED'
     )
     ORDER BY p.created_at DESC, p.id DESC
   `, [req.user.id, req.user.id, req.user.id, req.user.id]);
@@ -2638,7 +2628,7 @@ app.get('/api/playlists/:playlistId', optionalAuth, async (req, res) => {
     JOIN users u ON u.id = pc.user_id
     LEFT JOIN users inviter ON inviter.id = pc.invited_by_user_id
     WHERE pc.playlist_id = ?
-      AND (pc.status = 'ACCEPTED' OR (? = 1 AND ? = ?))
+      AND (UPPER(pc.status) = 'ACCEPTED' OR (? = 1 AND ? = ?))
     ORDER BY pc.status ASC, pc.created_at ASC, pc.id ASC
   `, [playlistId, access?.is_owner ? 1 : 0, access?.is_owner ? playlist.user_id : 0, playlist.user_id]);
 

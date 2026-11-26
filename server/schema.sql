@@ -328,25 +328,6 @@ CREATE TABLE IF NOT EXISTS direct_messages (
   CONSTRAINT fk_direct_messages_review FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS direct_messages (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  sender_id BIGINT UNSIGNED NOT NULL,
-  recipient_id BIGINT UNSIGNED NOT NULL,
-  body VARCHAR(2000) NULL,
-  image_asset_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
-  review_id BIGINT UNSIGNED NULL,
-  read_at TIMESTAMP NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  KEY idx_direct_messages_sender_recipient (sender_id, recipient_id, id),
-  KEY idx_direct_messages_recipient_sender (recipient_id, sender_id, id),
-  KEY idx_direct_messages_unread (recipient_id, read_at, id),
-  CONSTRAINT fk_direct_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_direct_messages_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_direct_messages_image FOREIGN KEY (image_asset_id) REFERENCES image_assets(id) ON DELETE SET NULL,
-  CONSTRAINT fk_direct_messages_review FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 CREATE TABLE IF NOT EXISTS featured_releases (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   release_id BIGINT UNSIGNED NOT NULL,
