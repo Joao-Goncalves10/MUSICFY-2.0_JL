@@ -27,6 +27,18 @@ CREATE TABLE IF NOT EXISTS users (
   UNIQUE KEY uq_users_email (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE IF NOT EXISTS password_reset_tokens (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  user_id BIGINT UNSIGNED NOT NULL,
+  token CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+  expires_at DATETIME NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_password_reset_token (token),
+  KEY idx_password_reset_user (user_id),
+  CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE IF NOT EXISTS app_settings (
   setting_key VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
   setting_value VARCHAR(255) NOT NULL,
@@ -234,6 +246,7 @@ CREATE TABLE IF NOT EXISTS playlists (
   name VARCHAR(191) NOT NULL,
   description TEXT NULL,
   cover_url VARCHAR(512) NULL,
+  is_public TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   KEY idx_playlists_user_id (user_id),
@@ -316,6 +329,8 @@ CREATE TABLE IF NOT EXISTS direct_messages (
   body VARCHAR(2000) NULL,
   image_asset_id CHAR(32) CHARACTER SET ascii COLLATE ascii_bin NULL,
   review_id BIGINT UNSIGNED NULL,
+  shared_release_id BIGINT UNSIGNED NULL,
+  shared_track_id BIGINT UNSIGNED NULL,
   read_at TIMESTAMP NULL,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -325,7 +340,9 @@ CREATE TABLE IF NOT EXISTS direct_messages (
   CONSTRAINT fk_direct_messages_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_direct_messages_recipient FOREIGN KEY (recipient_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_direct_messages_image FOREIGN KEY (image_asset_id) REFERENCES image_assets(id) ON DELETE SET NULL,
-  CONSTRAINT fk_direct_messages_review FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE SET NULL
+  CONSTRAINT fk_direct_messages_review FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE SET NULL,
+  CONSTRAINT fk_direct_messages_release FOREIGN KEY (shared_release_id) REFERENCES releases(id) ON DELETE SET NULL,
+  CONSTRAINT fk_direct_messages_track FOREIGN KEY (shared_track_id) REFERENCES tracks(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS featured_releases (

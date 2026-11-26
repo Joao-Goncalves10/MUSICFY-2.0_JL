@@ -2183,6 +2183,7 @@ function ChatPage() {
   const [attachment, setAttachment] = useState(null);
   const [attachmentError, setAttachmentError] = useState('');
   const [sharedReview, setSharedReview] = useState(null);
+  const [sharedMusic, setSharedMusic] = useState(null);
   const [shareReviewError, setShareReviewError] = useState('');
   const [inboxError, setInboxError] = useState('');
   const [threadError, setThreadError] = useState('');
@@ -2194,6 +2195,8 @@ function ChatPage() {
   const shouldStickToBottom = useRef(true);
   const activeUserId = searchParams.get('with') || '';
   const shareReviewId = searchParams.get('review') || '';
+  const shareReleaseId = searchParams.get('release') || '';
+  const shareTrackId = searchParams.get('track') || '';
   const canSendMessages = isAccountApproved(user);
 
   const refreshConversations = useCallback(async () => {
@@ -2337,6 +2340,22 @@ function ChatPage() {
     return () => { active = false; };
   }, [shareReviewId]);
 
+  useEffect(() => {
+    if (!shareReleaseId && !shareTrackId) {
+      setSharedMusic(null);
+      return undefined;
+    }
+    let active = true;
+    api.get(`/releases/${shareReleaseId || shareTrackId}`)
+      .then(({ data }) => {
+        const release = data.release;
+        const track = shareTrackId ? (data.tracks || []).find((item) => String(item.id) === String(shareTrackId)) : null;
+        if (active && release) setSharedMusic({ release, track });
+      })
+      .catch(() => { if (active) setSharedMusic(null); });
+    return () => { active = false; };
+  }, [shareReleaseId, shareTrackId]);
+
   useEffect(() => () => {
     if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
   }, [attachment]);
@@ -2370,6 +2389,13 @@ function ChatPage() {
     setSearchParams(nextParams);
   };
 
+  const removeSharedMusic = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('release');
+    nextParams.delete('track');
+    setSearchParams(nextParams);
+  };
+
   const handleAttachmentChange = (event) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
@@ -2392,7 +2418,7 @@ function ChatPage() {
   const sendMessage = async (event) => {
     event.preventDefault();
     const body = draft.trim();
-    if (!activeUserId || (!body && !attachment && !sharedReview) || !canSendMessages || isSending) return;
+    if (!activeUserId || (!body && !attachment && !sharedReview && !sharedMusic) || !canSendMessages || isSending) return;
 
     setIsSending(true);
     setThreadError('');
@@ -2402,6 +2428,8 @@ function ChatPage() {
         body,
         image_url: imageUrl,
         review_id: sharedReview?.id || null,
+        shared_release_id: sharedMusic?.release?.id || null,
+        shared_track_id: sharedMusic?.track?.id || null,
       });
     } catch (error) {
       setThreadError(error.response?.data?.error || 'Não foi possível enviar a mensagem.');
@@ -2412,6 +2440,7 @@ function ChatPage() {
     setDraft('');
     setAttachment(null);
     if (sharedReview) removeSharedReview();
+    if (sharedMusic) removeSharedMusic();
     setIsSending(false);
 
     try {
@@ -2591,6 +2620,17 @@ function ChatPage() {
                       {message.shared_review_gif_url && (
                         <ReviewGif src={message.shared_review_gif_url} />
                       )}
+                      {(message.shared_release_id || message.shared_track_id) && (
+                        <Link className="chat-shared-review chat-shared-music" to={`/releases/${message.shared_release_id || message.shared_track_id}`}>
+                          <img src={message.shared_release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                          <span>
+                            <small>{message.shared_track_id ? 'MÚSICA COMPARTILHADA' : 'ÁLBUM COMPARTILHADO'}</small>
+                            <strong>{message.shared_track_title || message.shared_release_title}</strong>
+                            <span>{message.shared_release_artist_name || 'Musicfy'}{message.shared_track_release_title ? ` · ${message.shared_track_release_title}` : ''}</span>
+                            <p>{message.shared_track_duration || 'Clique para abrir no Musicfy'}</p>
+                          </span>
+                        </Link>
+                      )}
                       <time>{formatMessageTime(message.created_at)}</time>
                     </article>
                   );
@@ -2623,6 +2663,16 @@ function ChatPage() {
                   <button type="button" className="ghost-btn compact-btn" onClick={removeSharedReview} aria-label="Remover resenha anexada">
                     ×
                   </button>
+                </div>
+              )}
+
+              {sharedMusic && (
+                <div className="chat-composer-preview">
+                  <div className="chat-share-review-preview">
+                    <img src={sharedMusic.release.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                    <span><strong>{sharedMusic.track?.title || sharedMusic.release.title}</strong><small>{sharedMusic.track ? 'Música' : 'Álbum'} · {sharedMusic.release.artist_name}</small></span>
+                  </div>
+                  <button type="button" className="ghost-btn compact-btn" onClick={removeSharedMusic} aria-label="Remover música ou álbum anexado">×</button>
                 </div>
               )}
 
@@ -2669,7 +2719,7 @@ function ChatPage() {
                     <button
                       type="submit"
                       className="chat-send-button"
-                      disabled={isSending || isLoadingReview || (!draft.trim() && !attachment && !sharedReview)}
+                      disabled={isSending || isLoadingReview || (!draft.trim() && !attachment && !sharedReview && !sharedMusic)}
                     >
                       {isSending ? 'Enviando…' : 'Enviar'}
                     </button>
@@ -2688,7 +2738,7 @@ function ChatPage() {
                 </svg>
               </span>
               <h2>Suas conversas, no seu ritmo</h2>
-              <p>Escolha uma conversa ou busque alguém para compartilhar resenhas, imagens e GIFs.</p>
+              <p>Escolha uma conversa ou busque alguém para compartilhar álbuns, músicas, resenhas, imagens e GIFs.</p>
             </div>
           )}
         </section>
@@ -3168,6 +3218,9 @@ function ReleaseDetailPage() {
               </button>
             )}
             {canWrite && (
+              <button className="secondary-btn" type="button" onClick={() => navigate(`/chat?release=${release.id}`)}>Compartilhar álbum</button>
+            )}
+            {canWrite && (
               <button className="primary-btn" onClick={togglePreSave} type="button">
                 {preSaved ? 'Remover pré-save' : isFutureRelease ? 'Pré-salvar lançamento' : 'Salvar lançamento'}
               </button>
@@ -3332,6 +3385,9 @@ function ReleaseDetailPage() {
                         </svg>
                         {isLyricsOpen ? 'Ocultar letra' : 'Ver letra'}
                       </button>
+                    )}
+                    {canWrite && (
+                      <button type="button" className="ghost-btn track-compact-btn" onClick={() => navigate(`/chat?track=${track.id}&release=${release.id}`)}>Compartilhar</button>
                     )}
                     {canWrite && (
                       <button
@@ -3642,7 +3698,7 @@ function PlaylistPage() {
   const [isLoadingCollaborators, setIsLoadingCollaborators] = useState(false);
   const [isInvitingCollaborator, setIsInvitingCollaborator] = useState(false);
   const [collaboratorMessage, setCollaboratorMessage] = useState('');
-  const [form, setForm] = useState({ name: '', description: '', cover_url: '' });
+  const [form, setForm] = useState({ name: '', description: '', cover_url: '', is_public: true });
 
   useEffect(() => {
     let active = true;
@@ -3656,6 +3712,7 @@ function PlaylistPage() {
           name: data.playlist.name || '',
           description: data.playlist.description || '',
           cover_url: data.playlist.cover_url || '',
+          is_public: Boolean(Number(data.playlist.is_public)),
         });
       })
       .catch((requestError) => {
@@ -3839,7 +3896,7 @@ function PlaylistPage() {
             {playlist.full_name || playlist.username}
           </Link>
           <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
-          <span>{tracks.length} {tracks.length === 1 ? 'música' : 'músicas'}</span>
+          <span className="playlist-visibility-badge">{Number(playlist.is_public) ? '🌐 Pública' : '🔒 Privada'} · {tracks.length} {tracks.length === 1 ? 'música' : 'músicas'}</span>
         </div>
         {canManagePlaylist && (
           <div className="playlist-hero-actions">
@@ -3959,6 +4016,10 @@ function PlaylistPage() {
               placeholder="https://..."
             />
           </label>
+          <label className="playlist-visibility-toggle">
+            <input type="checkbox" checked={form.is_public} onChange={(event) => setForm((current) => ({ ...current, is_public: event.target.checked }))} disabled={isSaving} />
+            <span><strong>Playlist pública</strong><small>{form.is_public ? 'Todos podem ver' : 'Só você e colaboradores podem ver'}</small></span>
+          </label>
           <button type="submit" className="primary-btn" disabled={isSaving}>
             {isSaving ? 'Salvando…' : 'Salvar alterações'}
           </button>
@@ -4040,6 +4101,7 @@ function ProfilePage() {
   const [playlistName, setPlaylistName] = useState('');
   const [playlistDescription, setPlaylistDescription] = useState('');
   const [playlistCoverUrl, setPlaylistCoverUrl] = useState('');
+  const [playlistIsPublic, setPlaylistIsPublic] = useState(true);
   const [playlistError, setPlaylistError] = useState('');
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
   const [playlistInviteQuery, setPlaylistInviteQuery] = useState('');
@@ -4127,11 +4189,13 @@ function ProfilePage() {
         name,
         description: playlistDescription.trim(),
         cover_url: playlistCoverUrl.trim(),
+        is_public: playlistIsPublic,
         invite_user_ids: playlistInviteUsers.map((person) => person.id),
       });
       setPlaylistName('');
       setPlaylistDescription('');
       setPlaylistCoverUrl('');
+      setPlaylistIsPublic(true);
       setPlaylistInviteQuery('');
       setPlaylistInviteResults([]);
       setPlaylistInviteUsers([]);
@@ -4507,6 +4571,10 @@ function ProfilePage() {
                     rows={2}
                     disabled={isCreatingPlaylist}
                   />
+                  <label className="playlist-visibility-toggle">
+                    <input type="checkbox" checked={playlistIsPublic} onChange={(event) => setPlaylistIsPublic(event.target.checked)} disabled={isCreatingPlaylist} />
+                    <span><strong>Playlist pública</strong><small>{playlistIsPublic ? 'Todos podem ver' : 'Só você e colaboradores podem ver'}</small></span>
+                  </label>
                   <input
                     type="url"
                     value={playlistCoverUrl}
@@ -4665,15 +4733,32 @@ function ProfilePage() {
 function AuthPage() {
   const { login, user } = useAuth();
   const navigate = useNavigate();
+  const [authSearchParams, setAuthSearchParams] = useSearchParams();
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ username: '', full_name: '', email: '', password: '', confirmPassword: '' });
   const [error, setError] = useState('');
   const [registrationApprovalRequired, setRegistrationApprovalRequired] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
   const [registrationSettingsError, setRegistrationSettingsError] = useState('');
 
   useEffect(() => {
     if (user) navigate('/');
   }, [user, navigate]);
+
+  useEffect(() => {
+    const googleToken = authSearchParams.get('google_token');
+    if (authSearchParams.get('google_error')) setError('Não foi possível configurar ou concluir o login com Google.');
+    if (!googleToken) return;
+    api.get('/auth/me', { headers: { Authorization: `Bearer ${googleToken}` } })
+      .then(({ data }) => { login(googleToken, data.user); navigate('/', { replace: true }); })
+      .catch(() => setError('Não foi possível concluir o login com Google.'));
+    const next = new URLSearchParams(authSearchParams); next.delete('google_token'); next.delete('google_error'); setAuthSearchParams(next, { replace: true });
+  }, [authSearchParams, login, navigate, setAuthSearchParams]);
 
   useEffect(() => {
     let active = true;
@@ -4688,6 +4773,26 @@ function AuthPage() {
 
     return () => { active = false; };
   }, []);
+
+  const requestPasswordReset = async (event) => {
+    event.preventDefault();
+    setError('');
+    try {
+      const { data } = await api.post('/auth/forgot-password', { email: resetEmail });
+      setResetMessage(data.message);
+      if (data.reset_token) setResetToken(data.reset_token);
+    } catch (err) { setError(err.response?.data?.error || 'Não foi possível solicitar a recuperação.'); }
+  };
+
+  const resetPassword = async (event) => {
+    event.preventDefault();
+    try {
+      await api.post('/auth/reset-password', { token: resetToken, password: form.password });
+      setResetMessage('Senha redefinida. Agora você já pode entrar.');
+      setAuthMode('login');
+      setMode('login');
+    } catch (err) { setError(err.response?.data?.error || 'Não foi possível redefinir a senha.'); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -4741,7 +4846,17 @@ function AuthPage() {
           <button aria-pressed={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError(''); }} type="button">Criar conta</button>
         </div>
 
-        <form onSubmit={submit} className="auth-form">
+        {authMode === 'forgot' ? (
+          <form onSubmit={resetToken ? resetPassword : requestPasswordReset} className="auth-form">
+            <label className="auth-field">{resetToken ? 'Nova senha' : 'E-mail da conta'}
+              {resetToken ? <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} minLength={6} required /> : <input type="email" value={resetEmail} onChange={(event) => setResetEmail(event.target.value)} placeholder="voce@email.com" required />}
+            </label>
+            {resetMessage && <p className="auth-registration-note" role="status">{resetMessage}</p>}
+            {error && <p className="error-text" role="alert">{error}</p>}
+            <button className="primary-btn auth-submit" type="submit">{resetToken ? 'Salvar nova senha' : 'Enviar recuperação'} <span aria-hidden="true">→</span></button>
+            <button type="button" className="auth-text-button" onClick={() => { setAuthMode('login'); setResetToken(''); setResetMessage(''); setError(''); }}>Voltar para entrar</button>
+          </form>
+        ) : <form onSubmit={submit} className="auth-form">
           {mode === 'register' && (
             <>
               <label className="auth-field">Nome
@@ -4757,12 +4872,12 @@ function AuthPage() {
             <input autoComplete="username" placeholder="Seu nome de usuário" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
           </label>
           <label className="auth-field">Senha
-            <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Sua senha" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+            <div className="password-field"><input type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Sua senha" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /><button type="button" className="password-toggle" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}>{showPassword ? '◉' : '◌'}</button></div>
           </label>
 
           {mode === 'register' && (
             <label className="auth-field">Confirmar senha
-              <input type="password" autoComplete="new-password" placeholder="Digite a senha novamente" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} required />
+              <div className="password-field"><input type={showConfirmPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="Digite a senha novamente" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} required /><button type="button" className="password-toggle" onClick={() => setShowConfirmPassword((value) => !value)} aria-label={showConfirmPassword ? 'Ocultar confirmação' : 'Mostrar confirmação'}>{showConfirmPassword ? '◉' : '◌'}</button></div>
             </label>
           )}
 
@@ -4781,7 +4896,9 @@ function AuthPage() {
             {mode === 'login' ? 'Entrar no Musicfy' : 'Criar minha conta'}
             <span aria-hidden="true">→</span>
           </button>
-        </form>
+        </form>}
+
+        {mode === 'login' && <div className="auth-extra-actions"><button type="button" className="auth-text-button" onClick={() => { setAuthMode('forgot'); setError(''); }}>Esqueci minha senha</button><button type="button" className="google-login-btn" onClick={() => { window.location.href = '/api/auth/google'; }}>Continuar com Google</button></div>}
 
         <p className="auth-privacy-note">Sua próxima descoberta musical está a poucos segundos.</p>
       </div>
