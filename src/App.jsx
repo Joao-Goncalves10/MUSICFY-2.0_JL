@@ -525,40 +525,30 @@ function Navbar({ theme, onToggleTheme }) {
   const { user, logout } = useAuth();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchError, setSearchError] = useState('');
 
   useEffect(() => {
-    const searchTerm = query.trim();
-    if (!searchTerm) {
+    if (!query.trim()) {
       setResults([]);
-      setSearchError('');
-      setIsSearching(false);
       return undefined;
     }
 
     let active = true;
-    setIsSearching(true);
-    setSearchError('');
-    const timer = window.setTimeout(async () => {
+    const fetchSearch = async () => {
       try {
-        const response = await api.get('/search', { params: { q: searchTerm } });
-        if (!active) return;
-        const artists = (response.data.artists || []).map((artist) => ({ ...artist, resultType: 'artist' }));
-        const releases = (response.data.releases || []).map((release) => ({ ...release, resultType: 'release' }));
-        setResults([...artists, ...releases]);
+        const [artistsRes, releasesRes] = await Promise.all([api.get('/artists'), api.get('/releases')]);
+        const matches = [...artistsRes.data, ...releasesRes.data]
+          .filter((item) => (item.name || item.title || '').toLowerCase().includes(query.toLowerCase()))
+          .slice(0, 6);
+        if (active) setResults(matches);
       } catch (error) {
-        if (active) {
-          setResults([]);
-          setSearchError(error.response?.data?.error || 'Não foi possível pesquisar agora. Tente novamente.');
-        }
-      } finally {
-        if (active) setIsSearching(false);
+        if (active) setResults([]);
       }
-    }, 180);
+    };
+
+    const timer = setTimeout(fetchSearch, 180);
     return () => {
       active = false;
-      window.clearTimeout(timer);
+      clearTimeout(timer);
     };
   }, [query]);
 
@@ -570,69 +560,14 @@ function Navbar({ theme, onToggleTheme }) {
 
       {!user?.is_suspended && (
         <div className="search-wrap">
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Pesquisar artistas ou lançamentos"
-            aria-label="Pesquisar artistas ou lançamentos"
-            aria-autocomplete="list"
-            aria-controls="global-search-results"
-            aria-expanded={Boolean(query.trim())}
-          />
-          {query.trim() && (
-            <div className="search-results" id="global-search-results" role="listbox" aria-label="Resultados da busca">
-              {isSearching ? (
-                <p className="search-feedback" role="status">Buscando no catálogo…</p>
-              ) : searchError ? (
-                <p className="search-feedback is-error" role="alert">{searchError}</p>
-              ) : results.length ? (
-                results.map((item) => {
-                  const isArtist = item.resultType === 'artist';
-                  const title = isArtist ? item.name : item.title;
-                  const fallbackImage = isArtist ? getArtistFallbackImage(item) : getReleaseFallbackImage(item);
-                  const image = isArtist ? item.image_url || fallbackImage : item.cover_url || fallbackImage;
-                  const subtitle = isArtist
-                    ? 'Artista'
-                    : `${item.release_type || 'Lançamento'}${item.artist_name ? ` · ${item.artist_name}` : ''}`;
-
-                  return (
-                    <Link
-                      key={`${item.resultType}-${item.id}`}
-                      to={isArtist ? `/artists/${item.id}` : `/releases/${item.id}`}
-                      onClick={() => setQuery('')}
-                      role="option"
-                    >
-                      <img
-                        className="search-result-image"
-                        src={image}
-                        onError={(event) => handleImageError(event, fallbackImage)}
-                        alt=""
-                      />
-                      <span className="search-result-copy">
-                        <strong>{title}</strong>
-                        <small>{subtitle}</small>
-                      </span>
-                      <span className="search-result-type" aria-hidden="true">
-                        {isArtist ? (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M9 18V5l12-2v13" />
-                            <circle cx="6" cy="18" r="3" />
-                            <circle cx="18" cy="16" r="3" />
-                          </svg>
-                        ) : (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="3" width="18" height="18" rx="3" />
-                            <circle cx="12" cy="12" r="5" />
-                            <circle cx="12" cy="12" r="1" />
-                          </svg>
-                        )}
-                      </span>
-                    </Link>
-                  );
-                })
-              ) : (
-                <p className="search-feedback" role="status">Nenhum artista ou lançamento encontrado.</p>
-              )}
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pesquisar artistas ou lançamentos" />
+          {results.length > 0 && (
+            <div className="search-results">
+              {results.map((item) => (
+                <Link key={item.id + (item.name || item.title)} to={item.name ? `/artists/${item.id}` : `/releases/${item.id}`} onClick={() => setQuery('')}>
+                  {item.name || item.title}
+                </Link>
+              ))}
             </div>
           )}
         </div>
@@ -3688,6 +3623,7 @@ function PlaylistPage() {
   const [trackQuery, setTrackQuery] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isReordering, setIsReordering] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', cover_url: '' });
 
   useEffect(() => {
@@ -3767,18 +3703,27 @@ function PlaylistPage() {
   };
 
   const moveTrack = async (index, direction) => {
+    if (isReordering) return;
     const tracks = [...playlistData.tracks];
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= tracks.length) return;
     [tracks[index], tracks[nextIndex]] = [tracks[nextIndex], tracks[index]];
     setActionError('');
+    setIsReordering(true);
+    setPlaylistData((current) => ({ ...current, tracks }));
     try {
       await api.put(`/playlists/${playlistId}/tracks/order`, {
         track_ids: tracks.map((track) => track.track_id),
       });
-      setPlaylistData((current) => ({ ...current, tracks }));
     } catch (requestError) {
       setActionError(requestError.response?.data?.error || 'Não foi possível reordenar as músicas.');
+      try {
+        await reloadPlaylist();
+      } catch {
+        // Mantém a mensagem original se a tentativa de recarregar também falhar.
+      }
+    } finally {
+      setIsReordering(false);
     }
   };
 
@@ -3951,8 +3896,8 @@ function PlaylistPage() {
                 <span className="playlist-track-duration">{track.duration || '—'}</span>
                 {canEditTracks && (
                   <div className="playlist-track-owner-actions">
-                    <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0 || Boolean(trackQuery.trim())} aria-label={`Mover ${track.track_title} para cima`}>↑</button>
-                    <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === tracks.length - 1 || Boolean(trackQuery.trim())} aria-label={`Mover ${track.track_title} para baixo`}>↓</button>
+                    <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0 || Boolean(trackQuery.trim()) || isReordering} aria-label={`Mover ${track.track_title} para cima`}>↑</button>
+                    <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === tracks.length - 1 || Boolean(trackQuery.trim()) || isReordering} aria-label={`Mover ${track.track_title} para baixo`}>↓</button>
                     <button type="button" onClick={() => removeTrack(track.track_id)} aria-label={`Remover ${track.track_title} da playlist`}>×</button>
                   </div>
                 )}
