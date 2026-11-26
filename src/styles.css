@@ -10405,3 +10405,17 @@ body {
 :root[data-theme="light"] .lyrics-column p {
   color: var(--text);
 }
+
+
+/* Playlist confirmation state: stays legible in both themes and above release overrides. */
+.release-view .playlist-btn.is-in-playlist,
+.release-view .playlist-btn.is-in-playlist:hover,
+.release-view .playlist-btn.is-in-playlist:disabled {
+  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  box-shadow: none;
+  opacity: 1;
+  transform: none;
+  cursor: default;
+}
