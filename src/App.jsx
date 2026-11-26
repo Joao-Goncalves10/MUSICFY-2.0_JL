@@ -2847,6 +2847,7 @@ function ReleaseDetailPage() {
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
   const [playlistTrackIds, setPlaylistTrackIds] = useState(new Set());
+  const [pendingPlaylistTrackIds, setPendingPlaylistTrackIds] = useState(new Set());
   const [playlistActionMessage, setPlaylistActionMessage] = useState('');
   const [favoriteTrackIds, setFavoriteTrackIds] = useState([]);
   const [openLyricsTrackId, setOpenLyricsTrackId] = useState(null);
@@ -2888,8 +2889,10 @@ function ReleaseDetailPage() {
   useEffect(() => {
     if (!selectedPlaylistId) {
       setPlaylistTrackIds(new Set());
+      setPendingPlaylistTrackIds(new Set());
       return undefined;
     }
+    setPendingPlaylistTrackIds(new Set());
     let active = true;
     api.get(`/playlists/${selectedPlaylistId}`)
       .then((response) => {
@@ -2951,13 +2954,29 @@ function ReleaseDetailPage() {
       return;
     }
 
-    setPlaylistActionMessage('');
+    const normalizedTrackId = Number(trackId);
+    if (playlistTrackIds.has(normalizedTrackId) || pendingPlaylistTrackIds.has(normalizedTrackId)) return;
+
+    // Atualização otimista: o check aparece sem esperar a resposta da API.
+    setPlaylistTrackIds((current) => new Set([...current, normalizedTrackId]));
+    setPendingPlaylistTrackIds((current) => new Set([...current, normalizedTrackId]));
+    setPlaylistActionMessage('✓ Música adicionada à playlist.');
     try {
       const response = await api.post(`/playlists/${selectedPlaylistId}/tracks`, { track_id: trackId });
-      setPlaylistTrackIds((current) => new Set([...current, Number(trackId)]));
       setPlaylistActionMessage(response.data.added ? '✓ Música adicionada à playlist.' : '✓ Essa música já está na playlist.');
     } catch (error) {
+      setPlaylistTrackIds((current) => {
+        const next = new Set(current);
+        next.delete(normalizedTrackId);
+        return next;
+      });
       setPlaylistActionMessage(error.response?.data?.error || 'Não foi possível adicionar a música.');
+    } finally {
+      setPendingPlaylistTrackIds((current) => {
+        const next = new Set(current);
+        next.delete(normalizedTrackId);
+        return next;
+      });
     }
   };
 
@@ -3252,6 +3271,7 @@ function ReleaseDetailPage() {
           {tracks.map((track) => {
             const isLyricsOpen = openLyricsTrackId === track.id;
             const isTrackInSelectedPlaylist = playlistTrackIds.has(Number(track.id));
+            const isAddingToPlaylist = pendingPlaylistTrackIds.has(Number(track.id));
             return (
               <div key={track.id} className={`track-item glass-panel ${isLyricsOpen ? 'is-open' : ''}`}>
                 <div className="track-row-main">
@@ -3316,7 +3336,7 @@ function ReleaseDetailPage() {
                         type="button"
                         className={`ghost-btn track-compact-btn playlist-btn${isTrackInSelectedPlaylist ? ' is-in-playlist' : ''}`}
                         onClick={() => addTrackToPlaylist(track.id)}
-                        disabled={isTrackInSelectedPlaylist}
+                        disabled={isTrackInSelectedPlaylist || isAddingToPlaylist}
                         aria-label={isTrackInSelectedPlaylist ? 'Música já está na playlist selecionada' : 'Adicionar música à playlist'}
                       >
                         <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
