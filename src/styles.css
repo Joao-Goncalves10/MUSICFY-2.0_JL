@@ -4210,17 +4210,6 @@ textarea {
   font-size: 0.82rem;
 }
 
-.playlist-btn.is-in-playlist {
-  color: var(--success);
-  border-color: var(--success-border);
-  background: var(--success-soft);
-  cursor: default;
-}
-
-.playlist-btn.is-in-playlist svg {
-  stroke-width: 2.2;
-}
-
 .playlist-page-loading {
   padding: 24px;
   color: var(--muted);
@@ -10407,7 +10396,17 @@ body {
 }
 
 
-/* Playlist confirmation state: stays legible in both themes and above release overrides. */
+.playlist-btn.is-in-playlist {
+  color: var(--success);
+  border-color: var(--success-border);
+  background: var(--success-soft);
+  cursor: default;
+}
+
+.playlist-btn.is-in-playlist svg {
+  stroke-width: 2.2;
+}
+
 .release-view .playlist-btn.is-in-playlist,
 .release-view .playlist-btn.is-in-playlist:hover,
 .release-view .playlist-btn.is-in-playlist:disabled {
@@ -10418,4 +10417,180 @@ body {
   opacity: 1;
   transform: none;
   cursor: default;
+}
+
+.load-more-btn {
+  display: block;
+  margin: 24px auto 0;
+  min-height: 46px;
+  padding: 0 22px;
+  border-radius: 999px;
+  color: var(--text);
+  background: var(--glass);
+  border-color: var(--line);
+  font-weight: 750;
+}
+
+.load-more-btn:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, var(--glass));
+  transform: translateY(-1px);
+}
+
+.share-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: grid;
+  place-items: center;
+  padding: clamp(16px, 4vw, 40px);
+  background: rgba(5, 8, 13, 0.68);
+  backdrop-filter: blur(16px) saturate(125%);
+  -webkit-backdrop-filter: blur(16px) saturate(125%);
+}
+
+.share-modal {
+  position: relative;
+  width: min(100%, 560px);
+  max-height: min(760px, calc(100vh - 32px));
+  overflow: auto;
+  padding: clamp(24px, 5vw, 40px);
+  border: 1px solid var(--line);
+  background: var(--glass-strong);
+  box-shadow: 0 32px 100px rgba(0, 0, 0, 0.35);
+}
+
+.share-modal h2 {
+  max-width: 420px;
+  margin: 5px 0 8px;
+  color: var(--text);
+  font-size: clamp(1.35rem, 3vw, 2rem);
+  line-height: 1.12;
+}
+
+.share-modal-subtitle,
+.share-modal-section > p {
+  color: var(--muted);
+}
+
+.share-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.share-modal-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.share-modal-section > strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.share-follower-list {
+  display: grid;
+  gap: 8px;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.share-follower-option {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 9px 11px;
+  text-align: left;
+  border-radius: 15px;
+  background: var(--glass-soft);
+}
+
+.share-follower-option:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--glass-soft));
+}
+
+.share-follower-option img {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.share-follower-option > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.share-follower-option b,
+.share-follower-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-follower-option b {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.share-follower-option small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.share-follower-option > span:last-child {
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.share-modal-external .primary-btn {
+  width: 100%;
+}
+
+.share-modal-status {
+  margin: 18px 0 0;
+  color: var(--primary);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .share-modal-backdrop {
+    align-items: end;
+    padding: 0;
+  }
+
+  .share-modal {
+    width: 100%;
+    max-height: min(720px, 92vh);
+    padding: 28px 18px 22px;
+    border-radius: 28px 28px 0 0;
+  }
+
+  .share-modal-close {
+    top: 12px;
+    right: 12px;
+  }
+
+  .share-modal-section {
+    margin-top: 20px;
+    padding-top: 16px;
+  }
 }

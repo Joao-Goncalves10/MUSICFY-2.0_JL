@@ -1,8 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const dns = require('dns').promises;
-const net = require('net');
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -926,112 +924,6 @@ app.get('/api/images/:id', async (req, res) => {
   return res.send(image.image_data);
 });
 
-const isPublicIpAddress = (ip) => {
-  if (!ip) return false;
-  if (ip.startsWith('::ffff:')) {
-    return isPublicIpAddress(ip.slice(7));
-  }
-  if (net.isIPv4(ip)) {
-    const parts = ip.split('.').map(Number);
-    if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) return false;
-    const [a, b] = parts;
-    if (a === 0 || a === 10 || a === 127) return false;
-    if (a === 169 && b === 254) return false;
-    if (a === 172 && b >= 16 && b <= 31) return false;
-    if (a === 192 && b === 168) return false;
-    if (a === 100 && b >= 64 && b <= 127) return false;
-    if (a >= 224) return false;
-    return true;
-  }
-  if (net.isIPv6(ip)) {
-    const lower = ip.toLowerCase();
-    if (lower === '::' || lower === '::1') return false;
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return false;
-    if (/^fe[89ab]/i.test(lower)) return false;
-    return true;
-  }
-  return false;
-};
-
-const validatePublicImageUrl = async (rawUrl) => {
-  if (typeof rawUrl !== 'string' || !rawUrl.trim() || rawUrl.length > 1024) return null;
-  let parsed;
-  try {
-    parsed = new URL(rawUrl.trim());
-  } catch {
-    return null;
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) return null;
-  if (!parsed.hostname || parsed.hostname === 'localhost') return null;
-
-  if (net.isIP(parsed.hostname)) {
-    return isPublicIpAddress(parsed.hostname) ? parsed : null;
-  }
-
-  const addresses = await dns.lookup(parsed.hostname, { all: true });
-  if (!addresses.length || !addresses.every((entry) => isPublicIpAddress(entry.address))) {
-    return null;
-  }
-  return parsed;
-};
-
-app.get('/api/story-image', async (req, res) => {
-  let currentUrl = await validatePublicImageUrl(req.query.url);
-  if (!currentUrl) return res.status(400).json({ error: 'Invalid image URL.' });
-
-  try {
-    let response;
-    for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
-      response = await fetch(currentUrl.toString(), {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(5000),
-        headers: {
-          Accept: 'image/png,image/jpeg,image/webp,image/gif,image/*',
-          'User-Agent': 'Musicfy/2.0.0',
-        },
-      });
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
-        if (!location || redirectCount === 3) {
-          return res.status(400).json({ error: 'Too many redirects.' });
-        }
-        const nextUrl = new URL(location, currentUrl).toString();
-        currentUrl = await validatePublicImageUrl(nextUrl);
-        if (!currentUrl) return res.status(400).json({ error: 'Redirect target is not allowed.' });
-        continue;
-      }
-      break;
-    }
-
-    if (!response || !response.ok) {
-      return res.status(502).json({ error: 'Unable to fetch remote image.' });
-    }
-
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (declaredLength > 5 * 1024 * 1024) {
-      return res.status(413).json({ error: 'Image is too large.' });
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    if (!buffer.length || buffer.length > 5 * 1024 * 1024) {
-      return res.status(413).json({ error: 'Image is too large.' });
-    }
-
-    const extension = getImageExtension(buffer);
-    if (!extension) {
-      return res.status(415).json({ error: 'Unsupported remote image format.' });
-    }
-
-    res.set('Content-Type', imageMimeTypes[extension]);
-    res.set('X-Content-Type-Options', 'nosniff');
-    res.set('Cache-Control', 'public, max-age=3600');
-    return res.send(buffer);
-  } catch {
-    return res.status(502).json({ error: 'Could not load remote image.' });
-  }
-});
-
 app.get('/api/auth/registration-settings', async (req, res) => {
   const setting = await getDb(
     'SELECT setting_value FROM app_settings WHERE setting_key = ?',
@@ -1919,19 +1811,21 @@ app.get('/api/messages/conversations', requireAuth, async (req, res) => {
         WHERE unread.sender_id = u.id AND unread.recipient_id = ? AND unread.read_at IS NULL
       ) AS unread_count
     FROM (
-      SELECT
-        CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS other_user_id,
-        MAX(id) AS last_message_id
-      FROM direct_messages
-      WHERE sender_id = ? OR recipient_id = ?
-      GROUP BY CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END
+      SELECT conversation.other_user_id, MAX(conversation.id) AS last_message_id
+      FROM (
+        SELECT id,
+          CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS other_user_id
+        FROM direct_messages
+        WHERE sender_id = ? OR recipient_id = ?
+      ) conversation
+      GROUP BY conversation.other_user_id
     ) latest
     JOIN direct_messages m ON m.id = latest.last_message_id
     JOIN users u ON u.id = latest.other_user_id
     WHERE u.is_suspended = 0 AND u.is_approved = 1
     ORDER BY m.id DESC
     LIMIT 100
-  `, [userId, userId, userId, userId, userId, userId]);
+  `, [userId, userId, userId, userId, userId]);
   return res.json({ conversations });
 });
 
