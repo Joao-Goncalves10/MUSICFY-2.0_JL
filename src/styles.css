@@ -10137,6 +10137,11 @@ body {
   border-color: color-mix(in srgb, var(--card-accent) 24%, var(--line));
 }
 
+.home-review-card .home-review-release:hover {
+  background: color-mix(in srgb, var(--card-accent) 18%, rgba(7, 13, 25, 0.72));
+  border-color: color-mix(in srgb, var(--card-accent) 48%, var(--line));
+}
+
 /* Modo Claro */
 :root[data-theme="light"] .home-review-card.glass-panel {
   --card-accent: var(--review-accent, var(--artist-accent, var(--primary)));
@@ -10164,6 +10169,11 @@ body {
 :root[data-theme="light"] .home-review-card .home-review-release {
   background: color-mix(in srgb, var(--card-accent) 8%, rgba(255, 255, 255, 0.75));
   border-color: color-mix(in srgb, var(--card-accent) 22%, rgba(30, 48, 69, 0.12));
+}
+
+:root[data-theme="light"] .home-review-card .home-review-release:hover {
+  background: color-mix(in srgb, var(--card-accent) 16%, rgba(255, 255, 255, 0.9));
+  border-color: color-mix(in srgb, var(--card-accent) 44%, rgba(30, 48, 69, 0.18));
 }
 
 .youtube-mini-player {
