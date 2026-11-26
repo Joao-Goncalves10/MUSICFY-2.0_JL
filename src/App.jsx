@@ -2752,6 +2752,7 @@ function ReleaseDetailPage() {
   const [preSaved, setPreSaved] = useState(false);
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
+  const [playlistTrackIds, setPlaylistTrackIds] = useState(new Set());
   const [playlistActionMessage, setPlaylistActionMessage] = useState('');
   const [favoriteTrackIds, setFavoriteTrackIds] = useState([]);
   const [openLyricsTrackId, setOpenLyricsTrackId] = useState(null);
@@ -2789,6 +2790,24 @@ function ReleaseDetailPage() {
   useEffect(() => {
     load();
   }, [releaseId, user]);
+
+  useEffect(() => {
+    if (!selectedPlaylistId) {
+      setPlaylistTrackIds(new Set());
+      return undefined;
+    }
+    let active = true;
+    api.get(`/playlists/${selectedPlaylistId}`)
+      .then((response) => {
+        if (active) setPlaylistTrackIds(new Set((response.data?.tracks || []).map((track) => Number(track.track_id))));
+      })
+      .catch(() => {
+        if (active) setPlaylistTrackIds(new Set());
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedPlaylistId]);
 
   useEffect(() => {
     if (!releaseInfo || !isAccountApproved(user) || searchParams.get('review') !== '1') return;
@@ -2841,7 +2860,8 @@ function ReleaseDetailPage() {
     setPlaylistActionMessage('');
     try {
       const response = await api.post(`/playlists/${selectedPlaylistId}/tracks`, { track_id: trackId });
-      setPlaylistActionMessage(response.data.added ? 'Música adicionada à playlist.' : 'Essa música já está na playlist.');
+      setPlaylistTrackIds((current) => new Set([...current, Number(trackId)]));
+      setPlaylistActionMessage(response.data.added ? '✓ Música adicionada à playlist.' : '✓ Essa música já está na playlist.');
     } catch (error) {
       setPlaylistActionMessage(error.response?.data?.error || 'Não foi possível adicionar a música.');
     }
@@ -3137,6 +3157,7 @@ function ReleaseDetailPage() {
         <div className="tracklist">
           {tracks.map((track) => {
             const isLyricsOpen = openLyricsTrackId === track.id;
+            const isTrackInSelectedPlaylist = playlistTrackIds.has(Number(track.id));
             return (
               <div key={track.id} className={`track-item glass-panel ${isLyricsOpen ? 'is-open' : ''}`}>
                 <div className="track-row-main">
@@ -3197,12 +3218,17 @@ function ReleaseDetailPage() {
                       </button>
                     )}
                     {canWrite && (
-                      <button type="button" className="ghost-btn track-compact-btn playlist-btn" onClick={() => addTrackToPlaylist(track.id)}>
+                      <button
+                        type="button"
+                        className={`ghost-btn track-compact-btn playlist-btn${isTrackInSelectedPlaylist ? ' is-in-playlist' : ''}`}
+                        onClick={() => addTrackToPlaylist(track.id)}
+                        disabled={isTrackInSelectedPlaylist}
+                        aria-label={isTrackInSelectedPlaylist ? 'Música já está na playlist selecionada' : 'Adicionar música à playlist'}
+                      >
                         <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3.5 5h8M3.5 9h8M3.5 13h5" />
-                          <path d="M15 10v7m-3.5-3.5h7" />
+                          {isTrackInSelectedPlaylist ? <path d="m4 10.5 3.5 3.5L16 6" /> : <><path d="M3.5 5h8M3.5 9h8M3.5 13h5" /><path d="M15 10v7m-3.5-3.5h7" /></>}
                         </svg>
-                        Playlist
+                        {isTrackInSelectedPlaylist ? 'Na playlist' : 'Playlist'}
                       </button>
                     )}
                   </div>
