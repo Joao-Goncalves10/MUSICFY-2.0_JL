@@ -1620,6 +1620,25 @@ app.post('/api/reviews', requireAuth, async (req, res) => {
   return res.status(201).json({ message: 'Review created.', reviewId: review.id });
 });
 
+app.get('/api/reviews/:id/share-preview', requireAuth, async (req, res) => {
+  const reviewId = parsePositiveId(req.params.id);
+  if (!reviewId) return res.status(400).json({ error: 'Review ID is invalid.' });
+
+  const review = await getDb(`
+    SELECT rv.id, rv.user_id, rv.release_id, rv.rating, rv.review_text, rv.created_at,
+      rm.gif_url, u.username, u.full_name, u.avatar_url,
+      r.title AS release_title, r.cover_url AS release_cover, a.name AS artist_name
+    FROM reviews rv
+    JOIN users u ON u.id = rv.user_id
+    JOIN releases r ON r.id = rv.release_id
+    JOIN artists a ON a.id = r.artist_id
+    LEFT JOIN review_media rm ON rm.review_id = rv.id
+    WHERE rv.id = ? AND u.is_suspended = 0 AND u.is_approved = 1
+  `, [reviewId]);
+  if (!review) return res.status(404).json({ error: 'Review not found.' });
+  return res.json(review);
+});
+
 app.put('/api/reviews/:id', requireAuth, async (req, res) => {
   const reviewId = parsePositiveId(req.params.id);
   if (!reviewId) return res.status(400).json({ error: 'Review ID is invalid.' });
@@ -1734,6 +1753,154 @@ app.post('/api/reviews/:id/like', requireAuth, async (req, res) => {
   return res.json({ liked: true });
 });
 
+app.get('/api/messages/unread-count', requireAuth, async (req, res) => {
+  const result = await getDb(
+    'SELECT COUNT(*) AS unread_count FROM direct_messages WHERE recipient_id = ? AND read_at IS NULL',
+    [req.user.id]
+  );
+  return res.json({ unread_count: Number(result.unread_count || 0) });
+});
+
+app.get('/api/messages/conversations', requireAuth, async (req, res) => {
+  const userId = req.user.id;
+  const conversations = await allDb(`
+    SELECT u.id, u.username, u.full_name, u.avatar_url,
+      m.body AS last_message_body, m.image_asset_id AS last_message_image_id,
+      m.review_id AS last_message_review_id, m.sender_id AS last_message_sender_id,
+      m.created_at AS last_message_created_at,
+      (m.sender_id = ?) AS last_message_is_mine,
+      (
+        SELECT COUNT(*)
+        FROM direct_messages unread
+        WHERE unread.sender_id = u.id AND unread.recipient_id = ? AND unread.read_at IS NULL
+      ) AS unread_count
+    FROM (
+      SELECT
+        CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS other_user_id,
+        MAX(id) AS last_message_id
+      FROM direct_messages
+      WHERE sender_id = ? OR recipient_id = ?
+      GROUP BY CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END
+    ) latest
+    JOIN direct_messages m ON m.id = latest.last_message_id
+    JOIN users u ON u.id = latest.other_user_id
+    WHERE u.is_suspended = 0 AND u.is_approved = 1
+    ORDER BY m.id DESC
+    LIMIT 100
+  `, [userId, userId, userId, userId, userId, userId]);
+  return res.json({ conversations });
+});
+
+app.get('/api/messages/:userId', requireAuth, async (req, res) => {
+  const recipientId = parsePositiveId(req.params.userId);
+  if (!recipientId || recipientId === req.user.id) {
+    return res.status(400).json({ error: 'Conversation user is invalid.' });
+  }
+
+  const recipient = await getDb(
+    'SELECT id, username, full_name, avatar_url FROM users WHERE id = ? AND is_suspended = 0 AND is_approved = 1',
+    [recipientId]
+  );
+  if (!recipient) return res.status(404).json({ error: 'User not found.' });
+
+  await runDb(
+    'UPDATE direct_messages SET read_at = CURRENT_TIMESTAMP WHERE sender_id = ? AND recipient_id = ? AND read_at IS NULL',
+    [recipientId, req.user.id]
+  );
+
+  const messages = await allDb(`
+    SELECT m.id, m.sender_id, m.recipient_id, m.body, m.review_id, m.created_at,
+      CASE WHEN m.image_asset_id IS NULL THEN NULL ELSE CONCAT('/api/images/', m.image_asset_id) END AS image_url,
+      sender.username AS sender_username, sender.full_name AS sender_full_name, sender.avatar_url AS sender_avatar_url,
+      rv.id AS shared_review_id, rv.rating AS shared_review_rating,
+      rv.review_text AS shared_review_text, rv.release_id AS shared_review_release_id,
+      rv_user.username AS shared_review_username, rv_user.full_name AS shared_review_full_name,
+      r.title AS shared_review_release_title, r.cover_url AS shared_review_release_cover,
+      a.name AS shared_review_artist_name, rm.gif_url AS shared_review_gif_url
+    FROM (
+      SELECT id
+      FROM direct_messages
+      WHERE (sender_id = ? AND recipient_id = ?) OR (sender_id = ? AND recipient_id = ?)
+      ORDER BY id DESC
+      LIMIT 100
+    ) recent
+    JOIN direct_messages m ON m.id = recent.id
+    JOIN users sender ON sender.id = m.sender_id
+    LEFT JOIN reviews rv ON rv.id = m.review_id
+    LEFT JOIN users rv_user ON rv_user.id = rv.user_id AND rv_user.is_suspended = 0 AND rv_user.is_approved = 1
+    LEFT JOIN releases r ON r.id = rv.release_id
+    LEFT JOIN artists a ON a.id = r.artist_id
+    LEFT JOIN review_media rm ON rm.review_id = rv.id
+    ORDER BY m.id ASC
+  `, [req.user.id, recipientId, recipientId, req.user.id]);
+  return res.json({ user: recipient, messages });
+});
+
+app.post('/api/messages/:userId', requireAuth, async (req, res) => {
+  const recipientId = parsePositiveId(req.params.userId);
+  if (!recipientId || recipientId === req.user.id) {
+    return res.status(400).json({ error: 'Conversation user is invalid.' });
+  }
+
+  const recipient = await getDb(
+    'SELECT id FROM users WHERE id = ? AND is_suspended = 0 AND is_approved = 1',
+    [recipientId]
+  );
+  if (!recipient) return res.status(404).json({ error: 'User not found.' });
+
+  const rawBody = req.body?.body ?? '';
+  if (typeof rawBody !== 'string') return res.status(400).json({ error: 'Message text must be a string.' });
+  const body = rawBody.trim();
+  if (body.length > 2000) return res.status(400).json({ error: 'Messages can contain at most 2000 characters.' });
+
+  const imageUrl = req.body?.image_url;
+  let imageAssetId = null;
+  if (imageUrl != null && imageUrl !== '') {
+    if (typeof imageUrl !== 'string') return res.status(400).json({ error: 'Message image is invalid.' });
+    let imagePath;
+    try {
+      const parsedImageUrl = new URL(imageUrl, 'http://musicfy.local');
+      if (!['http:', 'https:'].includes(parsedImageUrl.protocol)) {
+        return res.status(400).json({ error: 'Message image is invalid.' });
+      }
+      imagePath = parsedImageUrl.pathname;
+    } catch {
+      return res.status(400).json({ error: 'Message image is invalid.' });
+    }
+
+    imageAssetId = imagePath.match(/^\/api\/images\/([a-f\d]{32})$/i)?.[1] || null;
+    if (!imageAssetId) return res.status(400).json({ error: 'Upload an image before attaching it to a message.' });
+    const imageAsset = await getDb('SELECT id FROM image_assets WHERE id = ?', [imageAssetId]);
+    if (!imageAsset) return res.status(404).json({ error: 'Message image was not found.' });
+  }
+
+  const reviewId = req.body?.review_id == null || req.body.review_id === ''
+    ? null
+    : parsePositiveId(req.body.review_id);
+  if (req.body?.review_id != null && req.body.review_id !== '' && !reviewId) {
+    return res.status(400).json({ error: 'Review ID is invalid.' });
+  }
+  if (reviewId) {
+    const review = await getDb(`
+      SELECT rv.id
+      FROM reviews rv
+      JOIN users u ON u.id = rv.user_id
+      WHERE rv.id = ? AND u.is_suspended = 0 AND u.is_approved = 1
+    `, [reviewId]);
+    if (!review) return res.status(404).json({ error: 'Review not found.' });
+  }
+
+  if (!body && !imageAssetId && !reviewId) {
+    return res.status(400).json({ error: 'Write a message or attach an image or review.' });
+  }
+
+  const result = await runDb(
+    'INSERT INTO direct_messages (sender_id, recipient_id, body, image_asset_id, review_id) VALUES (?, ?, ?, ?, ?)',
+    [req.user.id, recipientId, body || null, imageAssetId, reviewId]
+  );
+  return res.status(201).json({ message_id: result.id });
+});
+
 app.get('/api/pre-saves/:releaseId', requireAuth, async (req, res) => {
   const existing = await getDb('SELECT id FROM pre_saves WHERE user_id = ? AND release_id = ?', [req.user.id, req.params.releaseId]);
   return res.json({ saved: Boolean(existing) });
@@ -1814,6 +1981,18 @@ app.get('/api/users', requireAuth, async (req, res) => {
   `, [req.user.id, req.user.id, query, pattern, pattern]);
 
   return res.json(users);
+});
+
+app.get('/api/users/:userId', requireAuth, async (req, res) => {
+  const userId = parsePositiveId(req.params.userId);
+  if (!userId || userId === req.user.id) return res.status(400).json({ error: 'User ID is invalid.' });
+
+  const user = await getDb(
+    'SELECT id, username, full_name, avatar_url FROM users WHERE id = ? AND is_suspended = 0 AND is_approved = 1',
+    [userId]
+  );
+  if (!user) return res.status(404).json({ error: 'User not found.' });
+  return res.json(user);
 });
 
 app.post('/api/users/:userId/follow', requireAuth, async (req, res) => {
