@@ -1,8 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const dns = require('dns').promises;
-const net = require('net');
 const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
@@ -487,6 +485,21 @@ async function initializeDatabase() {
   if (!playlistSortOrderColumn) {
     await execDb('ALTER TABLE playlist_tracks ADD COLUMN sort_order INT UNSIGNED NOT NULL DEFAULT 0');
   }
+  const playlistVisibilityColumn = await getDb(`
+    SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'playlists' AND COLUMN_NAME = 'is_public'
+  `);
+  if (!playlistVisibilityColumn) {
+    await execDb('ALTER TABLE playlists ADD COLUMN is_public TINYINT(1) NOT NULL DEFAULT 1 AFTER cover_url');
+  }
+  const messageShareColumns = [
+    ['shared_release_id', 'BIGINT UNSIGNED NULL'],
+    ['shared_track_id', 'BIGINT UNSIGNED NULL'],
+  ];
+  for (const [columnName, definition] of messageShareColumns) {
+    const exists = await getDb(`SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'direct_messages' AND COLUMN_NAME = ?`, [columnName]);
+    if (!exists) await execDb(`ALTER TABLE direct_messages ADD COLUMN ${columnName} ${definition} AFTER review_id`);
+  }
 
   await execDb('DROP TABLE IF EXISTS email_verification_tokens');
   const emailVerifiedColumn = await getDb(`
@@ -926,110 +939,54 @@ app.get('/api/images/:id', async (req, res) => {
   return res.send(image.image_data);
 });
 
-const isPublicIpAddress = (ip) => {
-  if (!ip) return false;
-  if (ip.startsWith('::ffff:')) {
-    return isPublicIpAddress(ip.slice(7));
-  }
-  if (net.isIPv4(ip)) {
-    const parts = ip.split('.').map(Number);
-    if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) return false;
-    const [a, b] = parts;
-    if (a === 0 || a === 10 || a === 127) return false;
-    if (a === 169 && b === 254) return false;
-    if (a === 172 && b >= 16 && b <= 31) return false;
-    if (a === 192 && b === 168) return false;
-    if (a === 100 && b >= 64 && b <= 127) return false;
-    if (a >= 224) return false;
-    return true;
-  }
-  if (net.isIPv6(ip)) {
-    const lower = ip.toLowerCase();
-    if (lower === '::' || lower === '::1') return false;
-    if (lower.startsWith('fc') || lower.startsWith('fd')) return false;
-    if (/^fe[89ab]/i.test(lower)) return false;
-    return true;
-  }
-  return false;
-};
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email) return res.status(400).json({ error: 'Informe seu e-mail.' });
+  const user = await getDb('SELECT id FROM users WHERE email = ?', [email]);
+  if (!user) return res.json({ message: 'Se o e-mail estiver cadastrado, enviaremos as instruções de recuperação.' });
+  const token = crypto.randomBytes(32).toString('hex');
+  await runDb('DELETE FROM password_reset_tokens WHERE user_id = ?', [user.id]);
+  await runDb('INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (?, ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 30 MINUTE))', [user.id, token]);
+  return res.json({ message: 'Solicitação criada. Configure um serviço de e-mail para enviar o link ao usuário.', reset_token: process.env.NODE_ENV === 'production' ? undefined : token });
+});
 
-const validatePublicImageUrl = async (rawUrl) => {
-  if (typeof rawUrl !== 'string' || !rawUrl.trim() || rawUrl.length > 1024) return null;
-  let parsed;
+app.post('/api/auth/reset-password', async (req, res) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
+  if (!token || password.length < 6) return res.status(400).json({ error: 'Token e senha com pelo menos 6 caracteres são obrigatórios.' });
+  const reset = await getDb('SELECT user_id FROM password_reset_tokens WHERE token = ? AND expires_at > CURRENT_TIMESTAMP', [token]);
+  if (!reset) return res.status(400).json({ error: 'Este link expirou ou não é válido.' });
+  await runDb('UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [bcrypt.hashSync(password, 10), reset.user_id]);
+  await runDb('DELETE FROM password_reset_tokens WHERE token = ?', [token]);
+  return res.json({ message: 'Senha redefinida com sucesso.' });
+});
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REDIRECT_URI) return res.redirect('/auth?google_error=not_configured');
   try {
-    parsed = new URL(rawUrl.trim());
-  } catch {
-    return null;
-  }
-  if (!['http:', 'https:'].includes(parsed.protocol)) return null;
-  if (!parsed.hostname || parsed.hostname === 'localhost') return null;
-
-  if (net.isIP(parsed.hostname)) {
-    return isPublicIpAddress(parsed.hostname) ? parsed : null;
-  }
-
-  const addresses = await dns.lookup(parsed.hostname, { all: true });
-  if (!addresses.length || !addresses.every((entry) => isPublicIpAddress(entry.address))) {
-    return null;
-  }
-  return parsed;
-};
-
-app.get('/api/story-image', async (req, res) => {
-  let currentUrl = await validatePublicImageUrl(req.query.url);
-  if (!currentUrl) return res.status(400).json({ error: 'Invalid image URL.' });
-
-  try {
-    let response;
-    for (let redirectCount = 0; redirectCount <= 3; redirectCount += 1) {
-      response = await fetch(currentUrl.toString(), {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(5000),
-        headers: {
-          Accept: 'image/png,image/jpeg,image/webp,image/gif,image/*',
-          'User-Agent': 'Musicfy/2.0.0',
-        },
-      });
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
-        if (!location || redirectCount === 3) {
-          return res.status(400).json({ error: 'Too many redirects.' });
-        }
-        const nextUrl = new URL(location, currentUrl).toString();
-        currentUrl = await validatePublicImageUrl(nextUrl);
-        if (!currentUrl) return res.status(400).json({ error: 'Redirect target is not allowed.' });
-        continue;
-      }
-      break;
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ code: String(req.query.code || ''), client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uri: process.env.GOOGLE_REDIRECT_URI, grant_type: 'authorization_code' }) });
+    const tokenData = await tokenResponse.json();
+    if (!tokenResponse.ok || !tokenData.access_token) throw new Error('Google token exchange failed');
+    const profileResponse = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: `Bearer ${tokenData.access_token}` } });
+    const profile = await profileResponse.json();
+    if (!profileResponse.ok || !profile.email) throw new Error('Google profile unavailable');
+    let user = await getDb('SELECT * FROM users WHERE email = ?', [profile.email.toLowerCase()]);
+    if (!user) {
+      const base = (profile.email.split('@')[0] || 'musicfy').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 24) || 'musicfy';
+      let username = base; let suffix = 1;
+      while (await getDb('SELECT id FROM users WHERE username = ?', [username])) username = `${base}${suffix++}`;
+      const result = await runDb(`INSERT INTO users (username, full_name, email, password_hash, avatar_url, bio, \`role\`, is_approved) VALUES (?, ?, ?, ?, ?, ?, 'USER', 1)`, [username, profile.name || username, profile.email.toLowerCase(), bcrypt.hashSync(crypto.randomBytes(24).toString('hex'), 10), profile.picture || null, 'Conta criada com o Google.']);
+      user = await getDb('SELECT * FROM users WHERE id = ?', [result.id]);
     }
+    const token = sendToken(user);
+    return res.redirect(`/auth?google_token=${encodeURIComponent(token)}`);
+  } catch (error) { console.error('Google OAuth failed:', error); return res.redirect('/auth?google_error=failed'); }
+});
 
-    if (!response || !response.ok) {
-      return res.status(502).json({ error: 'Unable to fetch remote image.' });
-    }
-
-    const declaredLength = Number(response.headers.get('content-length') || 0);
-    if (declaredLength > 5 * 1024 * 1024) {
-      return res.status(413).json({ error: 'Image is too large.' });
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    if (!buffer.length || buffer.length > 5 * 1024 * 1024) {
-      return res.status(413).json({ error: 'Image is too large.' });
-    }
-
-    const extension = getImageExtension(buffer);
-    if (!extension) {
-      return res.status(415).json({ error: 'Unsupported remote image format.' });
-    }
-
-    res.set('Content-Type', imageMimeTypes[extension]);
-    res.set('X-Content-Type-Options', 'nosniff');
-    res.set('Cache-Control', 'public, max-age=3600');
-    return res.send(buffer);
-  } catch {
-    return res.status(502).json({ error: 'Could not load remote image.' });
-  }
+app.get('/api/auth/google', async (req, res) => {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_REDIRECT_URI) return res.status(503).json({ error: 'Login com Google ainda não foi configurado pelo administrador.' });
+  const params = new URLSearchParams({ client_id: process.env.GOOGLE_CLIENT_ID, redirect_uri: process.env.GOOGLE_REDIRECT_URI, response_type: 'code', scope: 'openid email profile', access_type: 'offline', prompt: 'select_account' });
+  return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
 });
 
 app.get('/api/auth/registration-settings', async (req, res) => {
@@ -1919,19 +1876,21 @@ app.get('/api/messages/conversations', requireAuth, async (req, res) => {
         WHERE unread.sender_id = u.id AND unread.recipient_id = ? AND unread.read_at IS NULL
       ) AS unread_count
     FROM (
-      SELECT
-        CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS other_user_id,
-        MAX(id) AS last_message_id
-      FROM direct_messages
-      WHERE sender_id = ? OR recipient_id = ?
-      GROUP BY CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END
+      SELECT conversation.other_user_id, MAX(conversation.id) AS last_message_id
+      FROM (
+        SELECT id,
+          CASE WHEN sender_id = ? THEN recipient_id ELSE sender_id END AS other_user_id
+        FROM direct_messages
+        WHERE sender_id = ? OR recipient_id = ?
+      ) conversation
+      GROUP BY conversation.other_user_id
     ) latest
     JOIN direct_messages m ON m.id = latest.last_message_id
     JOIN users u ON u.id = latest.other_user_id
     WHERE u.is_suspended = 0 AND u.is_approved = 1
     ORDER BY m.id DESC
     LIMIT 100
-  `, [userId, userId, userId, userId, userId, userId]);
+  `, [userId, userId, userId, userId, userId]);
   return res.json({ conversations });
 });
 
@@ -1953,14 +1912,16 @@ app.get('/api/messages/:userId', requireAuth, async (req, res) => {
   );
 
   const messages = await allDb(`
-    SELECT m.id, m.sender_id, m.recipient_id, m.body, m.review_id, m.created_at,
+    SELECT m.id, m.sender_id, m.recipient_id, m.body, m.review_id, m.shared_release_id, m.shared_track_id, m.created_at,
       CASE WHEN m.image_asset_id IS NULL THEN NULL ELSE CONCAT('/api/images/', m.image_asset_id) END AS image_url,
       sender.username AS sender_username, sender.full_name AS sender_full_name, sender.avatar_url AS sender_avatar_url,
       rv.id AS shared_review_id, rv.rating AS shared_review_rating,
       rv.review_text AS shared_review_text, rv.release_id AS shared_review_release_id,
       rv_user.username AS shared_review_username, rv_user.full_name AS shared_review_full_name,
       r.title AS shared_review_release_title, r.cover_url AS shared_review_release_cover,
-      a.name AS shared_review_artist_name, rm.gif_url AS shared_review_gif_url
+      a.name AS shared_review_artist_name, rm.gif_url AS shared_review_gif_url,
+      sr.title AS shared_release_title, sr.cover_url AS shared_release_cover, sra.name AS shared_release_artist_name,
+      st.title AS shared_track_title, st.duration AS shared_track_duration, str.title AS shared_track_release_title
     FROM (
       SELECT id
       FROM direct_messages
@@ -1975,6 +1936,10 @@ app.get('/api/messages/:userId', requireAuth, async (req, res) => {
     LEFT JOIN releases r ON r.id = rv.release_id
     LEFT JOIN artists a ON a.id = r.artist_id
     LEFT JOIN review_media rm ON rm.review_id = rv.id
+    LEFT JOIN releases sr ON sr.id = m.shared_release_id
+    LEFT JOIN artists sra ON sra.id = sr.artist_id
+    LEFT JOIN tracks st ON st.id = m.shared_track_id
+    LEFT JOIN releases str ON str.id = st.release_id
     ORDER BY m.id ASC
   `, [req.user.id, recipientId, recipientId, req.user.id]);
   return res.json({ user: recipient, messages });
@@ -2034,13 +1999,27 @@ app.post('/api/messages/:userId', requireAuth, async (req, res) => {
     if (!review) return res.status(404).json({ error: 'Review not found.' });
   }
 
-  if (!body && !imageAssetId && !reviewId) {
+  const sharedReleaseId = req.body?.shared_release_id == null || req.body.shared_release_id === '' ? null : parsePositiveId(req.body.shared_release_id);
+  const sharedTrackId = req.body?.shared_track_id == null || req.body.shared_track_id === '' ? null : parsePositiveId(req.body.shared_track_id);
+  if ((req.body?.shared_release_id != null && req.body.shared_release_id !== '' && !sharedReleaseId) || (req.body?.shared_track_id != null && req.body.shared_track_id !== '' && !sharedTrackId)) {
+    return res.status(400).json({ error: 'O álbum ou música compartilhado é inválido.' });
+  }
+  if (sharedReleaseId) {
+    const release = await getDb('SELECT id FROM releases WHERE id = ?', [sharedReleaseId]);
+    if (!release) return res.status(404).json({ error: 'Álbum não encontrado.' });
+  }
+  if (sharedTrackId) {
+    const track = await getDb('SELECT id FROM tracks WHERE id = ?', [sharedTrackId]);
+    if (!track) return res.status(404).json({ error: 'Música não encontrada.' });
+  }
+
+  if (!body && !imageAssetId && !reviewId && !sharedReleaseId && !sharedTrackId) {
     return res.status(400).json({ error: 'Write a message or attach an image or review.' });
   }
 
   const result = await runDb(
-    'INSERT INTO direct_messages (sender_id, recipient_id, body, image_asset_id, review_id) VALUES (?, ?, ?, ?, ?)',
-    [req.user.id, recipientId, body || null, imageAssetId, reviewId]
+    'INSERT INTO direct_messages (sender_id, recipient_id, body, image_asset_id, review_id, shared_release_id, shared_track_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [req.user.id, recipientId, body || null, imageAssetId, reviewId, sharedReleaseId, sharedTrackId]
   );
   return res.status(201).json({ message_id: result.id });
 });
@@ -2336,7 +2315,10 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
       WHERE pt.playlist_id = p.id
     ) AS track_count
     FROM playlists p
-    WHERE p.user_id = ? OR EXISTS (
+    WHERE (
+      p.user_id = ?
+      AND (p.is_public = 1 OR ? = ?)
+    ) OR EXISTS (
       SELECT 1
       FROM playlist_collaborators pc
       WHERE pc.playlist_id = p.id
@@ -2344,7 +2326,7 @@ app.get('/api/profile/:userId', optionalAuth, async (req, res) => {
         AND UPPER(pc.status) = 'ACCEPTED'
     )
     ORDER BY p.created_at DESC
-  `, [userId, userId]);
+  `, [userId, req.user?.id || 0, userId, req.user?.id || 0]);
   const favorites = await allDb(`
     SELECT f.*, t.title AS track_title, r.id AS release_id, r.title AS release_title,
       r.cover_url AS release_cover, a.name AS artist_name
@@ -2620,6 +2602,7 @@ app.get('/api/playlists/:playlistId', optionalAuth, async (req, res) => {
   if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
 
   const access = await getPlaylistAccess(playlistId, req.user?.id || 0);
+  if (!Number(playlist.is_public) && !access?.is_owner && !access?.is_collaborator) return res.status(403).json({ error: 'Esta playlist é privada.' });
   const collaborators = await allDb(`
     SELECT pc.id, pc.user_id, pc.status, pc.created_at, pc.responded_at,
       u.username, u.full_name, u.avatar_url,
@@ -2653,7 +2636,7 @@ app.get('/api/playlists/:playlistId', optionalAuth, async (req, res) => {
 });
 
 app.post('/api/playlists', requireAuth, async (req, res) => {
-  const { name, description, cover_url } = req.body;
+  const { name, description, cover_url, is_public = true } = req.body;
   const playlistName = typeof name === 'string' ? name.trim() : '';
   const playlistDescription = typeof description === 'string' ? description.trim() : '';
   const playlistCover = typeof cover_url === 'string' ? cover_url.trim() : '';
@@ -2694,8 +2677,8 @@ app.post('/api/playlists', requireAuth, async (req, res) => {
   try {
     await connection.beginTransaction();
     const [playlistResult] = await connection.execute(
-      'INSERT INTO playlists (user_id, name, description, cover_url) VALUES (?, ?, ?, ?)',
-      [req.user.id, playlistName, playlistDescription, playlistCover]
+      'INSERT INTO playlists (user_id, name, description, cover_url, is_public) VALUES (?, ?, ?, ?, ?)',
+      [req.user.id, playlistName, playlistDescription, playlistCover, is_public ? 1 : 0]
     );
     playlistId = Number(playlistResult.insertId);
     await connection.execute(
@@ -2729,12 +2712,83 @@ app.post('/api/playlists', requireAuth, async (req, res) => {
   return res.status(201).json({ message: 'Playlist created.', playlistId });
 });
 
+app.post('/api/playlists/:playlistId/collaborators', requireAuth, async (req, res) => {
+  const playlistId = parsePositiveId(req.params.playlistId);
+  const invitedUserId = parsePositiveId(req.body?.user_id);
+  if (!playlistId || !invitedUserId) return res.status(400).json({ error: 'Playlist and user are required.' });
+
+  const access = await getPlaylistAccess(playlistId, req.user.id);
+  if (!access?.is_owner) return res.status(404).json({ error: 'Playlist not found.' });
+  if (invitedUserId === Number(req.user.id)) {
+    return res.status(400).json({ error: 'You cannot invite yourself to your own playlist.' });
+  }
+
+  const invitee = await getDb(
+    'SELECT id, username, full_name FROM users WHERE id = ? AND is_suspended = 0 AND is_approved = 1',
+    [invitedUserId]
+  );
+  if (!invitee) return res.status(400).json({ error: 'This person is no longer available.' });
+  const playlist = await getDb('SELECT id, name FROM playlists WHERE id = ? AND user_id = ?', [playlistId, req.user.id]);
+  if (!playlist) return res.status(404).json({ error: 'Playlist not found.' });
+
+  const existing = await getDb(
+    'SELECT id, status FROM playlist_collaborators WHERE playlist_id = ? AND user_id = ?',
+    [playlistId, invitedUserId]
+  );
+  if (existing && String(existing.status).toUpperCase() === 'ACCEPTED') {
+    return res.status(409).json({ error: 'This person is already a collaborator.' });
+  }
+  if (existing && String(existing.status).toUpperCase() === 'PENDING') {
+    return res.status(409).json({ error: 'There is already a pending invitation for this person.' });
+  }
+
+  const inviter = await getDb('SELECT username, full_name FROM users WHERE id = ?', [req.user.id]);
+  const inviterName = inviter?.full_name || inviter?.username || 'Alguém';
+  const connection = await db.getConnection();
+  let collaboratorId;
+  try {
+    await connection.beginTransaction();
+    if (existing) {
+      await connection.execute(
+        `UPDATE playlist_collaborators
+         SET invited_by_user_id = ?, status = 'PENDING', created_at = CURRENT_TIMESTAMP, responded_at = NULL
+         WHERE id = ? AND playlist_id = ? AND user_id = ?`,
+        [req.user.id, existing.id, playlistId, invitedUserId]
+      );
+      collaboratorId = Number(existing.id);
+    } else {
+      const [collaboratorResult] = await connection.execute(
+        `INSERT INTO playlist_collaborators (playlist_id, user_id, invited_by_user_id, status)
+         VALUES (?, ?, ?, 'PENDING')`,
+        [playlistId, invitedUserId, req.user.id]
+      );
+      collaboratorId = Number(collaboratorResult.insertId);
+    }
+    await createNotificationOnConnection(
+      connection,
+      invitedUserId,
+      'PLAYLIST_INVITE',
+      `${inviterName} convidou você para colaborar na playlist “${playlist.name}”.`,
+      `/playlists/${playlistId}`,
+      req.user.id,
+      collaboratorId
+    );
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+  return res.status(201).json({ message: 'Invitation sent.', collaboratorId });
+});
+
 app.put('/api/playlists/:playlistId', requireAuth, async (req, res) => {
   const playlistId = parsePositiveId(req.params.playlistId);
   if (!playlistId) return res.status(400).json({ error: 'Invalid playlist ID.' });
   const access = await getPlaylistAccess(playlistId, req.user.id);
   if (!access?.is_owner) return res.status(404).json({ error: 'Playlist not found.' });
-  const { name, description, cover_url } = req.body;
+  const { name, description, cover_url, is_public = true } = req.body;
   const playlistName = typeof name === 'string' ? name.trim() : '';
   const playlistDescription = typeof description === 'string' ? description.trim() : '';
   const playlistCover = typeof cover_url === 'string' ? cover_url.trim() : '';
@@ -2744,8 +2798,8 @@ app.put('/api/playlists/:playlistId', requireAuth, async (req, res) => {
   }
 
   await runDb(
-    'UPDATE playlists SET name = ?, description = ?, cover_url = ? WHERE id = ? AND user_id = ?',
-    [playlistName, playlistDescription, playlistCover, playlistId, req.user.id]
+    'UPDATE playlists SET name = ?, description = ?, cover_url = ?, is_public = ? WHERE id = ? AND user_id = ?',
+    [playlistName, playlistDescription, playlistCover, is_public ? 1 : 0, playlistId, req.user.id]
   );
   return res.json({ message: 'Playlist updated.' });
 });

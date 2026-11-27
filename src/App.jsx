@@ -7,7 +7,6 @@ import arianaGrandeProfileImage from './img/artist/ariana grande/icon/ariana gra
 import slayyyterProfileImage from './img/artist/slayyyter/slayyyter-profile.jpg';
 import slayyyterAlbumCover from './img/artist/slayyyter/worstmaninamerica_cover.jpg';
 import imagePlaceholder from './img/musicfy-image-placeholder.svg';
-import { STORY_THEMES, renderStoryCard } from './storyCard';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -168,81 +167,6 @@ const handleImageError = (event, fallbackImage) => {
   }
   image.src = fallbackImage;
 };
-
-const useIsCompactViewport = (breakpoint = 760) => {
-  const [isCompact, setIsCompact] = useState(() => (
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia(`(max-width: ${breakpoint}px)`).matches
-      : false
-  ));
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
-    const mediaQuery = window.matchMedia(`(max-width: ${breakpoint}px)`);
-    const handleChange = (event) => setIsCompact(event.matches);
-    setIsCompact(mediaQuery.matches);
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, [breakpoint]);
-
-  return isCompact;
-};
-
-const useProgressiveList = (
-  items = [],
-  { initialCount = 12, mobileInitialCount = 6, step = 12, mobileStep = 6, resetKey = '' } = {},
-) => {
-  const isCompact = useIsCompactViewport();
-  const batchInitial = isCompact ? mobileInitialCount : initialCount;
-  const batchStep = isCompact ? mobileStep : step;
-  const [limit, setLimit] = useState(batchInitial);
-
-  useEffect(() => {
-    setLimit(batchInitial);
-  }, [batchInitial, resetKey]);
-
-  const safeItems = Array.isArray(items) ? items : [];
-  const visibleItems = useMemo(() => safeItems.slice(0, limit), [safeItems, limit]);
-  const hasMore = visibleItems.length < safeItems.length;
-  const remainingCount = Math.max(0, safeItems.length - visibleItems.length);
-  const loadMore = useCallback(() => {
-    setLimit((current) => Math.min(safeItems.length, current + batchStep));
-  }, [safeItems.length, batchStep]);
-
-  return { visibleItems, hasMore, remainingCount, loadMore };
-};
-
-function ProgressiveListTrigger({ hasMore, remainingCount, onLoadMore, label = 'Mostrar mais' }) {
-  const triggerRef = useRef(null);
-
-  useEffect(() => {
-    if (!hasMore || typeof IntersectionObserver !== 'function') return undefined;
-    const element = triggerRef.current;
-    if (!element) return undefined;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          onLoadMore();
-        }
-      },
-      { rootMargin: '320px 0px' },
-    );
-
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [hasMore, onLoadMore]);
-
-  if (!hasMore) return null;
-
-  return (
-    <div ref={triggerRef} className="progressive-load-more">
-      <button type="button" className="secondary-btn progressive-load-more-btn" onClick={onLoadMore}>
-        {label} ({remainingCount} restante{remainingCount === 1 ? '' : 's'})
-      </button>
-    </div>
-  );
-}
 
 function ArtworkBackdrop({ src, className }) {
   const canvases = useRef([]);
@@ -1123,20 +1047,6 @@ function HomePage() {
   const visibleRecentReleases = recentReleases.filter((release) => (
     recentReleaseTypeFilter === 'Todos' || release.release_type === recentReleaseTypeFilter
   ));
-  const reviewsFeed = useProgressiveList(visibleReviews, {
-    initialCount: 10,
-    mobileInitialCount: 6,
-    step: 10,
-    mobileStep: 6,
-    resetKey: `${feedMode}|${normalizedFeedQuery}|${feedRatingFilter}`,
-  });
-  const recentFeed = useProgressiveList(visibleRecentReleases, {
-    initialCount: 12,
-    mobileInitialCount: 5,
-    step: 12,
-    mobileStep: 6,
-    resetKey: recentReleaseTypeFilter,
-  });
 
   return (
     <div className="home-page">
@@ -1214,9 +1124,8 @@ function HomePage() {
           {isLoading ? (
             <div className="home-feed-loading glass-panel" aria-live="polite">Carregando seu feed…</div>
           ) : visibleReviews.length ? (
-            <>
-              <div className="home-review-list">
-                {reviewsFeed.visibleItems.map((review) => {
+            <div className="home-review-list">
+              {visibleReviews.map((review) => {
   const accentColor =
     review.accent_color ||
     review.artist_accent_color ||
@@ -1236,8 +1145,6 @@ function HomePage() {
           <img
             src={review.avatar_url || imagePlaceholder}
             onError={(event) => handleImageError(event, imagePlaceholder)}
-            loading="lazy"
-            decoding="async"
             alt=""
           />
           <span>
@@ -1255,8 +1162,6 @@ function HomePage() {
         <img
           src={review.release_cover || imagePlaceholder}
           onError={(event) => handleImageError(event, imagePlaceholder)}
-          loading="lazy"
-          decoding="async"
           alt=""
         />
         <span>
@@ -1294,9 +1199,7 @@ function HomePage() {
     </article>
   );
 })}
-              </div>
-              <ProgressiveListTrigger {...reviewsFeed} label="Carregar mais resenhas" />
-            </>
+            </div>
           ) : (
             <div className="home-feed-empty glass-panel">
               <span className="home-empty-mark" aria-hidden="true">♫</span>
@@ -1336,27 +1239,24 @@ function HomePage() {
           </select>
 
           {visibleRecentReleases.length ? (
-            <>
-              <div className="home-recent-list">
-                {recentFeed.visibleItems.map((release) => (
-                  <Link
-                    key={release.id}
-                    to={`/releases/${release.id}`}
-                    className="home-recent-release"
-                    style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
-                  >
-                    <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} loading="lazy" decoding="async" alt="" />
-                    <span>
-                      <small>{release.release_type} · {formatFeedDate(release.release_date)}</small>
-                      <strong>{release.title}</strong>
-                      <span>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')}</span>
-                    </span>
-                    <span className="home-recent-arrow" aria-hidden="true">↗</span>
-                  </Link>
-                ))}
-              </div>
-              <ProgressiveListTrigger {...recentFeed} label="Mostrar mais lançamentos" />
-            </>
+            <div className="home-recent-list">
+              {visibleRecentReleases.map((release) => (
+                <Link
+                  key={release.id}
+                  to={`/releases/${release.id}`}
+                  className="home-recent-release"
+                  style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
+                >
+                  <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
+                  <span>
+                    <small>{release.release_type} · {formatFeedDate(release.release_date)}</small>
+                    <strong>{release.title}</strong>
+                    <span>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')}</span>
+                  </span>
+                  <span className="home-recent-arrow" aria-hidden="true">↗</span>
+                </Link>
+              ))}
+            </div>
           ) : !isLoading && recentReleases.length ? (
             <p className="home-recent-empty">Nenhum lançamento deste tipo.</p>
           ) : !isLoading ? (
@@ -1435,13 +1335,6 @@ function ExplorePage() {
       }
       return String(second.release_date).localeCompare(String(first.release_date));
     });
-  const releaseFeed = useProgressiveList(filteredReleases, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${selectedGenre}|${releaseTypeFilter}|${normalizedCatalogQuery}|${releaseSort}`,
-  });
 
   const scrollGenres = (direction) => {
     const track = genreTrackRef.current;
@@ -1572,9 +1465,8 @@ function ExplorePage() {
           </select>
         </div>
         <div className="card-grid">
-          {releaseFeed.visibleItems.map((release) => <ReleaseCard key={release.id} release={release} />)}
+          {filteredReleases.map((release) => <ReleaseCard key={release.id} release={release} />)}
         </div>
-        <ProgressiveListTrigger {...releaseFeed} label="Carregar mais lançamentos" />
         {filteredReleases.length === 0 && (
           <p className="explore-empty-state">Nenhum lançamento corresponde aos filtros selecionados.</p>
         )}
@@ -1587,6 +1479,7 @@ function ArtistsPage() {
   const [artists, setArtists] = useState([]);
   const [query, setQuery] = useState('');
   const [sortMode, setSortMode] = useState('popular');
+  const [visibleArtistCount, setVisibleArtistCount] = useState(24);
 
   useEffect(() => {
     api.get('/artists').then((res) => setArtists(res.data)).catch(console.error);
@@ -1597,13 +1490,10 @@ function ArtistsPage() {
     .sort((a, b) => sortMode === 'name'
       ? (a.name || '').localeCompare(b.name || '')
       : Number(b.release_count || 0) - Number(a.release_count || 0));
-  const artistFeed = useProgressiveList(filtered, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${query}|${sortMode}`,
-  });
+
+  useEffect(() => {
+    setVisibleArtistCount(24);
+  }, [query, sortMode]);
 
   return (
     <div className="content-stack artists-page">
@@ -1625,11 +1515,19 @@ function ArtistsPage() {
       {filtered.length ? (
         <>
           <div className="artist-grid">
-            {artistFeed.visibleItems.map((artist) => (
-              <ArtistCard key={artist.id} artist={artist} />
-            ))}
+          {filtered.slice(0, visibleArtistCount).map((artist) => (
+            <ArtistCard key={artist.id} artist={artist} />
+          ))}
           </div>
-          <ProgressiveListTrigger {...artistFeed} label="Carregar mais artistas" />
+          {visibleArtistCount < filtered.length && (
+            <button
+              type="button"
+              className="load-more-btn"
+              onClick={() => setVisibleArtistCount((current) => Math.min(current + 24, filtered.length))}
+            >
+              Carregar mais artistas ({filtered.length - visibleArtistCount} restantes)
+            </button>
+          )}
         </>
       ) : (
         <div className="profile-empty-state glass-panel">
@@ -1940,40 +1838,35 @@ function ShareReviewButton({ review, user }) {
     setStatusMessage('Imagem 9:16 salva! Agora é só postar nos Stories do Instagram.');
   };
 
-  const shareToStories = async () => {
-    if (!storyBlob) return;
-    const file = new File([storyBlob], fileName, { type: 'image/png' });
-    const releaseUrl = review?.release_id
-      ? `${window.location.origin}/releases/${review.release_id}`
-      : window.location.origin;
-
-    if (typeof navigator !== 'undefined' && navigator.share && navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({
-          files: [file],
-          title: `${review?.release_title || 'Resenha'} no Musicfy`,
-          text: `Minha nota ${review?.rating ?? 0}/10 para "${review?.release_title || 'este lançamento'}" no Musicfy: ${releaseUrl}`,
-        });
-        setStatusMessage('Cartão enviado para compartilhamento!');
-        return;
-      } catch (error) {
-        if (error?.name === 'AbortError') return;
+  const shareExternally = async () => {
+    const shareUrl = `${window.location.origin}/releases/${review.release_id}?review=${encodeURIComponent(review.id)}`;
+    const shareData = {
+      title: review.release_title || 'Resenha no Musicfy',
+      text: `Confira esta resenha no Musicfy: ${review.release_title || 'um lançamento'}`,
+      url: shareUrl,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        setShareStatus('Compartilhamento externo aberto.');
+      } else {
+        await navigator.clipboard.writeText(shareUrl);
+        setShareStatus('Link copiado. Você já pode compartilhar fora do Musicfy.');
       }
+    } catch (error) {
+      if (error?.name !== 'AbortError') setShareStatus('Não foi possível compartilhar agora.');
     }
-
-    downloadPng();
   };
 
-  const copyInviteLink = async () => {
-    const releaseUrl = review?.release_id
-      ? `${window.location.origin}/releases/${review.release_id}`
-      : window.location.origin;
-    const text = `Minha nota ${review?.rating ?? 0}/10 para "${review?.release_title || 'este lançamento'}" de ${review?.artist_name || 'artista'} no Musicfy — ${releaseUrl}`;
+  const shareWithFollower = async (follower) => {
     try {
-      await navigator.clipboard.writeText(text);
-      setStatusMessage('Texto e link copiados para usar no sticker do Story!');
-    } catch {
-      setErrorMessage('Não foi possível copiar automaticamente.');
+      await api.post(`/messages/${follower.id}`, {
+        body: 'Compartilhei uma resenha com você.',
+        review_id: review.id,
+      });
+      setShareStatus(`Resenha enviada para @${follower.username}.`);
+    } catch (error) {
+      setShareStatus(error.response?.data?.error || 'Não foi possível compartilhar com esta pessoa.');
     }
   };
 
@@ -2534,13 +2427,6 @@ function SocialPage() {
       ? Number(second.follower_count || 0) - Number(first.follower_count || 0)
         || String(first.full_name || first.username).localeCompare(String(second.full_name || second.username))
       : String(first.full_name || first.username).localeCompare(String(second.full_name || second.username)));
-  const userFeed = useProgressiveList(filteredUsers, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${query}|${followFilter}|${userSort}`,
-  });
 
   return (
     <div className="content-stack social-page">
@@ -2582,44 +2468,41 @@ function SocialPage() {
         {isLoading ? (
           <div className="loading-panel">Carregando pessoas…</div>
         ) : filteredUsers.length ? (
-          <>
-            <div className="social-user-grid">
-              {userFeed.visibleItems.map((person) => (
-                <article key={person.id} className="social-user-card glass-panel">
-                  <Link to={`/profile/${person.id}`} className="social-user-link">
-                    <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
-                    <span className="social-user-copy">
-                      <strong>{person.full_name || person.username}</strong>
-                      <small>@{person.username}</small>
-                    </span>
-                  </Link>
-                  <p>{person.bio || 'Ainda não adicionou uma biografia.'}</p>
-                  <div className="social-user-footer">
-                    <span>{Number(person.follower_count || 0)} seguidores</span>
-                    <div className="social-user-actions">
-                      {user && isAccountApproved(user) && (
-                        <Link className="chat-contact-link" to={`/chat?with=${person.id}`}>Mensagem</Link>
-                      )}
-                      <FollowButton
-                        userId={person.id}
-                        initialFollowing={Boolean(person.followed_by_user)}
-                        onChange={(isFollowing) => setUsers((current) => current.map((item) => (
-                          String(item.id) === String(person.id)
-                            ? {
-                              ...item,
-                              follower_count: Math.max(0, Number(item.follower_count || 0) + (isFollowing ? 1 : -1)),
-                              followed_by_user: isFollowing,
-                            }
-                            : item
-                        )))}
-                      />
-                    </div>
+          <div className="social-user-grid">
+            {filteredUsers.map((person) => (
+              <article key={person.id} className="social-user-card glass-panel">
+                <Link to={`/profile/${person.id}`} className="social-user-link">
+                  <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                  <span className="social-user-copy">
+                    <strong>{person.full_name || person.username}</strong>
+                    <small>@{person.username}</small>
+                  </span>
+                </Link>
+                <p>{person.bio || 'Ainda não adicionou uma biografia.'}</p>
+                <div className="social-user-footer">
+                  <span>{Number(person.follower_count || 0)} seguidores</span>
+                  <div className="social-user-actions">
+                    {user && isAccountApproved(user) && (
+                      <Link className="chat-contact-link" to={`/chat?with=${person.id}`}>Mensagem</Link>
+                    )}
+                    <FollowButton
+                      userId={person.id}
+                      initialFollowing={Boolean(person.followed_by_user)}
+                      onChange={(isFollowing) => setUsers((current) => current.map((item) => (
+                        String(item.id) === String(person.id)
+                          ? {
+                            ...item,
+                            follower_count: Math.max(0, Number(item.follower_count || 0) + (isFollowing ? 1 : -1)),
+                            followed_by_user: isFollowing,
+                          }
+                          : item
+                      )))}
+                    />
                   </div>
-                </article>
-              ))}
-            </div>
-            <ProgressiveListTrigger {...userFeed} label="Carregar mais pessoas" />
-          </>
+                </div>
+              </article>
+            ))}
+          </div>
         ) : !error ? (
           <div className="profile-empty-state glass-panel">
             <span aria-hidden="true">⌕</span>
@@ -2644,6 +2527,7 @@ function ChatPage() {
   const [attachment, setAttachment] = useState(null);
   const [attachmentError, setAttachmentError] = useState('');
   const [sharedReview, setSharedReview] = useState(null);
+  const [sharedMusic, setSharedMusic] = useState(null);
   const [shareReviewError, setShareReviewError] = useState('');
   const [inboxError, setInboxError] = useState('');
   const [threadError, setThreadError] = useState('');
@@ -2655,6 +2539,8 @@ function ChatPage() {
   const shouldStickToBottom = useRef(true);
   const activeUserId = searchParams.get('with') || '';
   const shareReviewId = searchParams.get('review') || '';
+  const shareReleaseId = searchParams.get('release') || '';
+  const shareTrackId = searchParams.get('track') || '';
   const canSendMessages = isAccountApproved(user);
 
   const refreshConversations = useCallback(async () => {
@@ -2798,6 +2684,22 @@ function ChatPage() {
     return () => { active = false; };
   }, [shareReviewId]);
 
+  useEffect(() => {
+    if (!shareReleaseId && !shareTrackId) {
+      setSharedMusic(null);
+      return undefined;
+    }
+    let active = true;
+    api.get(`/releases/${shareReleaseId || shareTrackId}`)
+      .then(({ data }) => {
+        const release = data.release;
+        const track = shareTrackId ? (data.tracks || []).find((item) => String(item.id) === String(shareTrackId)) : null;
+        if (active && release) setSharedMusic({ release, track });
+      })
+      .catch(() => { if (active) setSharedMusic(null); });
+    return () => { active = false; };
+  }, [shareReleaseId, shareTrackId]);
+
   useEffect(() => () => {
     if (attachment?.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
   }, [attachment]);
@@ -2831,6 +2733,13 @@ function ChatPage() {
     setSearchParams(nextParams);
   };
 
+  const removeSharedMusic = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('release');
+    nextParams.delete('track');
+    setSearchParams(nextParams);
+  };
+
   const handleAttachmentChange = (event) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
@@ -2853,7 +2762,7 @@ function ChatPage() {
   const sendMessage = async (event) => {
     event.preventDefault();
     const body = draft.trim();
-    if (!activeUserId || (!body && !attachment && !sharedReview) || !canSendMessages || isSending) return;
+    if (!activeUserId || (!body && !attachment && !sharedReview && !sharedMusic) || !canSendMessages || isSending) return;
 
     setIsSending(true);
     setThreadError('');
@@ -2863,6 +2772,8 @@ function ChatPage() {
         body,
         image_url: imageUrl,
         review_id: sharedReview?.id || null,
+        shared_release_id: sharedMusic?.release?.id || null,
+        shared_track_id: sharedMusic?.track?.id || null,
       });
     } catch (error) {
       setThreadError(error.response?.data?.error || 'Não foi possível enviar a mensagem.');
@@ -2873,6 +2784,7 @@ function ChatPage() {
     setDraft('');
     setAttachment(null);
     if (sharedReview) removeSharedReview();
+    if (sharedMusic) removeSharedMusic();
     setIsSending(false);
 
     try {
@@ -2895,10 +2807,23 @@ function ChatPage() {
 
   const formatMessageTime = (value) => {
     if (!value) return '';
-    const parsedDate = new Date(String(value).replace(' ', 'T'));
+    const rawValue = String(value).trim();
+    // O backend usa dateStrings:true e o banco retorna UTC sem o sufixo Z.
+    // Sem explicitar o fuso, o navegador interpreta o horário como local e o chat fica adiantado.
+    const normalizedValue = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(rawValue)
+      ? `${rawValue.replace(' ', 'T')}Z`
+      : rawValue.replace(' ', 'T');
+    const parsedDate = new Date(normalizedValue);
     return Number.isNaN(parsedDate.getTime())
       ? String(value)
-      : parsedDate.toLocaleString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      : parsedDate.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
   };
 
   return (
@@ -3039,6 +2964,17 @@ function ChatPage() {
                       {message.shared_review_gif_url && (
                         <ReviewGif src={message.shared_review_gif_url} />
                       )}
+                      {(message.shared_release_id || message.shared_track_id) && (
+                        <Link className="chat-shared-review chat-shared-music" to={`/releases/${message.shared_release_id || message.shared_track_id}`}>
+                          <img src={message.shared_release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                          <span>
+                            <small>{message.shared_track_id ? 'MÚSICA COMPARTILHADA' : 'ÁLBUM COMPARTILHADO'}</small>
+                            <strong>{message.shared_track_title || message.shared_release_title}</strong>
+                            <span>{message.shared_release_artist_name || 'Musicfy'}{message.shared_track_release_title ? ` · ${message.shared_track_release_title}` : ''}</span>
+                            <p>{message.shared_track_duration || 'Clique para abrir no Musicfy'}</p>
+                          </span>
+                        </Link>
+                      )}
                       <time>{formatMessageTime(message.created_at)}</time>
                     </article>
                   );
@@ -3071,6 +3007,16 @@ function ChatPage() {
                   <button type="button" className="ghost-btn compact-btn" onClick={removeSharedReview} aria-label="Remover resenha anexada">
                     ×
                   </button>
+                </div>
+              )}
+
+              {sharedMusic && (
+                <div className="chat-composer-preview">
+                  <div className="chat-share-review-preview">
+                    <img src={sharedMusic.release.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                    <span><strong>{sharedMusic.track?.title || sharedMusic.release.title}</strong><small>{sharedMusic.track ? 'Música' : 'Álbum'} · {sharedMusic.release.artist_name}</small></span>
+                  </div>
+                  <button type="button" className="ghost-btn compact-btn" onClick={removeSharedMusic} aria-label="Remover música ou álbum anexado">×</button>
                 </div>
               )}
 
@@ -3117,7 +3063,7 @@ function ChatPage() {
                     <button
                       type="submit"
                       className="chat-send-button"
-                      disabled={isSending || isLoadingReview || (!draft.trim() && !attachment && !sharedReview)}
+                      disabled={isSending || isLoadingReview || (!draft.trim() && !attachment && !sharedReview && !sharedMusic)}
                     >
                       {isSending ? 'Enviando…' : 'Enviar'}
                     </button>
@@ -3136,7 +3082,7 @@ function ChatPage() {
                 </svg>
               </span>
               <h2>Suas conversas, no seu ritmo</h2>
-              <p>Escolha uma conversa ou busque alguém para compartilhar resenhas, imagens e GIFs.</p>
+              <p>Escolha uma conversa ou busque alguém para compartilhar álbuns, músicas, resenhas, imagens e GIFs.</p>
             </div>
           )}
         </section>
@@ -3160,14 +3106,6 @@ function ArtistDetailPage() {
     setShellAccent(artistData?.artist?.accent_color || '');
     return () => setShellAccent('');
   }, [artistData?.artist?.accent_color, setShellAccent]);
-
-  const artistReleaseFeed = useProgressiveList(artistData?.releases || [], {
-    initialCount: 20,
-    mobileInitialCount: 8,
-    step: 20,
-    mobileStep: 8,
-    resetKey: artistId,
-  });
 
   if (!artistData) return <div className="loading-panel">Carregando artista…</div>;
 
@@ -3223,7 +3161,7 @@ function ArtistDetailPage() {
           <h2>Lançamentos populares</h2>
         </div>
         <div className="artist-release-list">
-          {artistData.releases.length ? artistReleaseFeed.visibleItems.map((release, index) => (
+          {artistData.releases.length ? artistData.releases.map((release, index) => (
             <Link
               key={release.id}
               to={`/releases/${release.id}`}
@@ -3231,7 +3169,7 @@ function ArtistDetailPage() {
               style={{ '--release-accent': release.accent_color || artistData.artist.accent_color || '#31b6c5' }}
             >
               <span className="artist-release-rank">{index + 1}</span>
-              <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} loading="lazy" decoding="async" alt="" />
+              <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
               <span className="artist-release-copy">
                 <strong>{release.title}</strong>
                 <small>{release.release_type} <span aria-hidden="true">•</span> {release.release_date}</small>
@@ -3242,7 +3180,6 @@ function ArtistDetailPage() {
             <p className="artist-empty-state">Este artista ainda não tem lançamentos cadastrados.</p>
           )}
         </div>
-        <ProgressiveListTrigger {...artistReleaseFeed} label="Mostrar mais lançamentos" />
       </section>
 
       <section className="artist-about" id="artist-about">
@@ -3266,7 +3203,7 @@ function ReleaseCard({ release, showListen = false }) {
       className="release-card glass-panel"
       style={{ '--release-accent': release.accent_color || release.artist_accent_color || '#31b6c5' }}
     >
-      <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} loading="lazy" decoding="async" alt={release.title} />
+      <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt={release.title} />
       <div className="release-meta">
         <span>{release.release_type}</span>
         <h3>{release.title}</h3>
@@ -3287,7 +3224,7 @@ function ArtistCard({ artist }) {
       className="artist-card"
       style={artist.accent_color ? { '--artist-accent': artist.accent_color } : undefined}
     >
-      <img src={artist.image_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} loading="lazy" decoding="async" alt={artist.name} />
+      <img src={artist.image_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt={artist.name} />
       <div>
         <h3>{artist.name}</h3>
         <p>{artist.genre_names || artist.genre || 'Artista independente'}</p>
@@ -3316,6 +3253,8 @@ function ReleaseDetailPage() {
   const [preSaved, setPreSaved] = useState(false);
   const [playlists, setPlaylists] = useState([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
+  const [playlistTrackIds, setPlaylistTrackIds] = useState(new Set());
+  const [pendingPlaylistTrackIds, setPendingPlaylistTrackIds] = useState(new Set());
   const [playlistActionMessage, setPlaylistActionMessage] = useState('');
   const [favoriteTrackIds, setFavoriteTrackIds] = useState([]);
   const [openLyricsTrackId, setOpenLyricsTrackId] = useState(null);
@@ -3353,6 +3292,26 @@ function ReleaseDetailPage() {
   useEffect(() => {
     load();
   }, [releaseId, user]);
+
+  useEffect(() => {
+    if (!selectedPlaylistId) {
+      setPlaylistTrackIds(new Set());
+      setPendingPlaylistTrackIds(new Set());
+      return undefined;
+    }
+    setPendingPlaylistTrackIds(new Set());
+    let active = true;
+    api.get(`/playlists/${selectedPlaylistId}`)
+      .then((response) => {
+        if (active) setPlaylistTrackIds(new Set((response.data?.tracks || []).map((track) => Number(track.track_id))));
+      })
+      .catch(() => {
+        if (active) setPlaylistTrackIds(new Set());
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedPlaylistId]);
 
   useEffect(() => {
     if (!releaseInfo || !isAccountApproved(user) || searchParams.get('review') !== '1') return;
@@ -3402,12 +3361,29 @@ function ReleaseDetailPage() {
       return;
     }
 
-    setPlaylistActionMessage('');
+    const normalizedTrackId = Number(trackId);
+    if (playlistTrackIds.has(normalizedTrackId) || pendingPlaylistTrackIds.has(normalizedTrackId)) return;
+
+    // Atualização otimista: o check aparece sem esperar a resposta da API.
+    setPlaylistTrackIds((current) => new Set([...current, normalizedTrackId]));
+    setPendingPlaylistTrackIds((current) => new Set([...current, normalizedTrackId]));
+    setPlaylistActionMessage('✓ Música adicionada à playlist.');
     try {
       const response = await api.post(`/playlists/${selectedPlaylistId}/tracks`, { track_id: trackId });
-      setPlaylistActionMessage(response.data.added ? 'Música adicionada à playlist.' : 'Essa música já está na playlist.');
+      setPlaylistActionMessage(response.data.added ? '✓ Música adicionada à playlist.' : '✓ Essa música já está na playlist.');
     } catch (error) {
+      setPlaylistTrackIds((current) => {
+        const next = new Set(current);
+        next.delete(normalizedTrackId);
+        return next;
+      });
       setPlaylistActionMessage(error.response?.data?.error || 'Não foi possível adicionar a música.');
+    } finally {
+      setPendingPlaylistTrackIds((current) => {
+        const next = new Set(current);
+        next.delete(normalizedTrackId);
+        return next;
+      });
     }
   };
 
@@ -3491,14 +3467,6 @@ function ReleaseDetailPage() {
       reviews: current.reviews.filter((review) => String(review.id) !== String(reviewId)),
     }) : current);
   };
-
-  const releaseReviewFeed = useProgressiveList(releaseInfo?.reviews || [], {
-    initialCount: 10,
-    mobileInitialCount: 6,
-    step: 10,
-    mobileStep: 6,
-    resetKey: releaseId,
-  });
 
   if (!releaseInfo) return <div className="loading-panel">Carregando lançamento…</div>;
 
@@ -3592,6 +3560,9 @@ function ReleaseDetailPage() {
               >
                 ▶ Ver videoclipes <span>{videoTracks.length}</span>
               </button>
+            )}
+            {canWrite && (
+              <button className="secondary-btn" type="button" onClick={() => navigate(`/chat?release=${release.id}`)}>Compartilhar álbum</button>
             )}
             {canWrite && (
               <button className="primary-btn" onClick={togglePreSave} type="button">
@@ -3709,6 +3680,8 @@ function ReleaseDetailPage() {
         <div className="tracklist">
           {tracks.map((track) => {
             const isLyricsOpen = openLyricsTrackId === track.id;
+            const isTrackInSelectedPlaylist = playlistTrackIds.has(Number(track.id));
+            const isAddingToPlaylist = pendingPlaylistTrackIds.has(Number(track.id));
             return (
               <div key={track.id} className={`track-item glass-panel ${isLyricsOpen ? 'is-open' : ''}`}>
                 <div className="track-row-main">
@@ -3758,6 +3731,9 @@ function ReleaseDetailPage() {
                       </button>
                     )}
                     {canWrite && (
+                      <button type="button" className="ghost-btn track-compact-btn" onClick={() => navigate(`/chat?track=${track.id}&release=${release.id}`)}>Compartilhar</button>
+                    )}
+                    {canWrite && (
                       <button
                         type="button"
                         className={`ghost-btn track-like-btn${favoriteTrackIds.includes(track.id) ? ' is-favorite' : ''}`}
@@ -3769,12 +3745,17 @@ function ReleaseDetailPage() {
                       </button>
                     )}
                     {canWrite && (
-                      <button type="button" className="ghost-btn track-compact-btn playlist-btn" onClick={() => addTrackToPlaylist(track.id)}>
+                      <button
+                        type="button"
+                        className={`ghost-btn track-compact-btn playlist-btn${isTrackInSelectedPlaylist ? ' is-in-playlist' : ''}`}
+                        onClick={() => addTrackToPlaylist(track.id)}
+                        disabled={isTrackInSelectedPlaylist || isAddingToPlaylist}
+                        aria-label={isTrackInSelectedPlaylist ? 'Música já está na playlist selecionada' : 'Adicionar música à playlist'}
+                      >
                         <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3.5 5h8M3.5 9h8M3.5 13h5" />
-                          <path d="M15 10v7m-3.5-3.5h7" />
+                          {isTrackInSelectedPlaylist ? <path d="m4 10.5 3.5 3.5L16 6" /> : <><path d="M3.5 5h8M3.5 9h8M3.5 13h5" /><path d="M15 10v7m-3.5-3.5h7" /></>}
                         </svg>
-                        Playlist
+                        {isTrackInSelectedPlaylist ? 'Na playlist' : 'Playlist'}
                       </button>
                     )}
                   </div>
@@ -4007,11 +3988,11 @@ function ReleaseDetailPage() {
           <span>{reviews.length} resenhas</span>
         </div>
         <div className="feed-list">
-          {releaseReviewFeed.visibleItems.map((review) => (
+          {reviews.map((review) => (
             <div key={review.id} className="review-feed-item glass-panel">
               <div className="review-head">
                 <Link to={`/profile/${review.user_id}`} className="mini-user review-author-link">
-                  <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt={review.username} />
+                  <img src={review.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt={review.username} />
                   <div>
                     <strong>{review.username}</strong>
                     <span>{review.created_at}</span>
@@ -4049,7 +4030,6 @@ function ReleaseDetailPage() {
           ))}
           {!reviews.length && <p className="explore-empty-state">Ainda não há resenhas para este lançamento.</p>}
         </div>
-        <ProgressiveListTrigger {...releaseReviewFeed} label="Carregar mais resenhas" />
       </section>
     </div>
   );
@@ -4066,7 +4046,13 @@ function PlaylistPage() {
   const [trackQuery, setTrackQuery] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [form, setForm] = useState({ name: '', description: '', cover_url: '' });
+  const [isReordering, setIsReordering] = useState(false);
+  const [collaboratorQuery, setCollaboratorQuery] = useState('');
+  const [collaboratorResults, setCollaboratorResults] = useState([]);
+  const [isLoadingCollaborators, setIsLoadingCollaborators] = useState(false);
+  const [isInvitingCollaborator, setIsInvitingCollaborator] = useState(false);
+  const [collaboratorMessage, setCollaboratorMessage] = useState('');
+  const [form, setForm] = useState({ name: '', description: '', cover_url: '', is_public: true });
 
   useEffect(() => {
     let active = true;
@@ -4080,6 +4066,7 @@ function PlaylistPage() {
           name: data.playlist.name || '',
           description: data.playlist.description || '',
           cover_url: data.playlist.cover_url || '',
+          is_public: Boolean(Number(data.playlist.is_public)),
         });
       })
       .catch((requestError) => {
@@ -4098,6 +4085,38 @@ function PlaylistPage() {
     && isAccountApproved(user)
     && playlistData?.permissions?.can_edit_tracks
   );
+
+  useEffect(() => {
+    const query = collaboratorQuery.trim();
+    if (!canManagePlaylist || query.length < 2) {
+      setCollaboratorResults([]);
+      setIsLoadingCollaborators(false);
+      return undefined;
+    }
+    let active = true;
+    setIsLoadingCollaborators(true);
+    const timer = window.setTimeout(() => {
+      api.get('/users', { params: { q: query } })
+        .then((response) => {
+          if (!active) return;
+          const existingIds = new Set((playlistData?.collaborators || []).map((person) => Number(person.user_id)));
+          setCollaboratorResults((response.data || []).filter((person) => (
+            Number(person.id) !== Number(user?.id) && !existingIds.has(Number(person.id))
+          )));
+        })
+        .catch(() => {
+          if (active) setCollaboratorResults([]);
+        })
+        .finally(() => {
+          if (active) setIsLoadingCollaborators(false);
+        });
+    }, 220);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [collaboratorQuery, canManagePlaylist, playlistData?.collaborators, user?.id]);
+
   const reloadPlaylist = async () => {
     const response = await api.get(`/playlists/${playlistId}`);
     setPlaylistData(response.data);
@@ -4123,6 +4142,23 @@ function PlaylistPage() {
     }
   };
 
+  const inviteCollaborator = async (person) => {
+    setIsInvitingCollaborator(true);
+    setActionError('');
+    setCollaboratorMessage('');
+    try {
+      await api.post(`/playlists/${playlistId}/collaborators`, { user_id: person.id });
+      setCollaboratorQuery('');
+      setCollaboratorResults([]);
+      setCollaboratorMessage(`Convite enviado para @${person.username}.`);
+      await reloadPlaylist();
+    } catch (requestError) {
+      setActionError(requestError.response?.data?.error || 'Não foi possível enviar o convite.');
+    } finally {
+      setIsInvitingCollaborator(false);
+    }
+  };
+
   const deletePlaylist = async () => {
     if (!window.confirm(`Excluir a playlist "${playlistData.playlist.name}"? Esta ação não pode ser desfeita.`)) return;
     setActionError('');
@@ -4145,18 +4181,27 @@ function PlaylistPage() {
   };
 
   const moveTrack = async (index, direction) => {
+    if (isReordering) return;
     const tracks = [...playlistData.tracks];
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= tracks.length) return;
     [tracks[index], tracks[nextIndex]] = [tracks[nextIndex], tracks[index]];
     setActionError('');
+    setIsReordering(true);
+    setPlaylistData((current) => ({ ...current, tracks }));
     try {
       await api.put(`/playlists/${playlistId}/tracks/order`, {
         track_ids: tracks.map((track) => track.track_id),
       });
-      setPlaylistData((current) => ({ ...current, tracks }));
     } catch (requestError) {
       setActionError(requestError.response?.data?.error || 'Não foi possível reordenar as músicas.');
+      try {
+        await reloadPlaylist();
+      } catch {
+        // Mantém a mensagem original se a tentativa de recarregar também falhar.
+      }
+    } finally {
+      setIsReordering(false);
     }
   };
 
@@ -4205,7 +4250,7 @@ function PlaylistPage() {
             {playlist.full_name || playlist.username}
           </Link>
           <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
-          <span>{tracks.length} {tracks.length === 1 ? 'música' : 'músicas'}</span>
+          <span className="playlist-visibility-badge">{Number(playlist.is_public) ? '🌐 Pública' : '🔒 Privada'} · {tracks.length} {tracks.length === 1 ? 'música' : 'músicas'}</span>
         </div>
         {canManagePlaylist && (
           <div className="playlist-hero-actions">
@@ -4256,6 +4301,45 @@ function PlaylistPage() {
               </div>
             </div>
           )}
+          {canManagePlaylist && (
+            <div className="playlist-invite-picker playlist-add-collaborator">
+              <div className="playlist-invite-heading">
+                <div>
+                  <strong>Adicionar colaborador</strong>
+                  <span>Convide alguém mesmo depois de criar a playlist.</span>
+                </div>
+              </div>
+              <input
+                type="search"
+                value={collaboratorQuery}
+                onChange={(event) => {
+                  setCollaboratorQuery(event.target.value);
+                  setCollaboratorMessage('');
+                }}
+                placeholder="Pesquisar por nome ou @usuário"
+                aria-label="Pesquisar colaborador"
+                disabled={isInvitingCollaborator}
+              />
+              {(isLoadingCollaborators || collaboratorResults.length > 0) && (
+                <div className="playlist-invite-results">
+                  {isLoadingCollaborators ? (
+                    <p>Buscando pessoas…</p>
+                  ) : collaboratorResults.length ? collaboratorResults.map((person) => (
+                    <button key={person.id} type="button" className="playlist-invite-result" onClick={() => void inviteCollaborator(person)} disabled={isInvitingCollaborator}>
+                      <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                      <span>
+                        <strong>{person.full_name || person.username}</strong>
+                        <small>@{person.username}</small>
+                      </span>
+                      <b aria-hidden="true">+</b>
+                    </button>
+                  )) : <p>Nenhuma pessoa disponível para convidar.</p>}
+                </div>
+              )}
+              {collaboratorQuery.trim().length === 1 && <small className="playlist-invite-hint">Digite pelo menos 2 caracteres para pesquisar.</small>}
+              {collaboratorMessage && <small className="playlist-invite-success" role="status">{collaboratorMessage}</small>}
+            </div>
+          )}
         </section>
       )}
 
@@ -4285,6 +4369,10 @@ function PlaylistPage() {
               onChange={(event) => setForm((current) => ({ ...current, cover_url: event.target.value }))}
               placeholder="https://..."
             />
+          </label>
+          <label className="playlist-visibility-toggle">
+            <input type="checkbox" checked={form.is_public} onChange={(event) => setForm((current) => ({ ...current, is_public: event.target.checked }))} disabled={isSaving} />
+            <span><strong>Playlist pública</strong><small>{form.is_public ? 'Todos podem ver' : 'Só você e colaboradores podem ver'}</small></span>
           </label>
           <button type="submit" className="primary-btn" disabled={isSaving}>
             {isSaving ? 'Salvando…' : 'Salvar alterações'}
@@ -4329,8 +4417,8 @@ function PlaylistPage() {
                 <span className="playlist-track-duration">{track.duration || '—'}</span>
                 {canEditTracks && (
                   <div className="playlist-track-owner-actions">
-                    <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0 || Boolean(trackQuery.trim())} aria-label={`Mover ${track.track_title} para cima`}>↑</button>
-                    <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === tracks.length - 1 || Boolean(trackQuery.trim())} aria-label={`Mover ${track.track_title} para baixo`}>↓</button>
+                    <button type="button" onClick={() => moveTrack(index, -1)} disabled={index === 0 || Boolean(trackQuery.trim()) || isReordering} aria-label={`Mover ${track.track_title} para cima`}>↑</button>
+                    <button type="button" onClick={() => moveTrack(index, 1)} disabled={index === tracks.length - 1 || Boolean(trackQuery.trim()) || isReordering} aria-label={`Mover ${track.track_title} para baixo`}>↓</button>
                     <button type="button" onClick={() => removeTrack(track.track_id)} aria-label={`Remover ${track.track_title} da playlist`}>×</button>
                   </div>
                 )}
@@ -4367,6 +4455,7 @@ function ProfilePage() {
   const [playlistName, setPlaylistName] = useState('');
   const [playlistDescription, setPlaylistDescription] = useState('');
   const [playlistCoverUrl, setPlaylistCoverUrl] = useState('');
+  const [playlistIsPublic, setPlaylistIsPublic] = useState(true);
   const [playlistError, setPlaylistError] = useState('');
   const [isCreatingPlaylist, setIsCreatingPlaylist] = useState(false);
   const [playlistInviteQuery, setPlaylistInviteQuery] = useState('');
@@ -4454,11 +4543,13 @@ function ProfilePage() {
         name,
         description: playlistDescription.trim(),
         cover_url: playlistCoverUrl.trim(),
+        is_public: playlistIsPublic,
         invite_user_ids: playlistInviteUsers.map((person) => person.id),
       });
       setPlaylistName('');
       setPlaylistDescription('');
       setPlaylistCoverUrl('');
+      setPlaylistIsPublic(true);
       setPlaylistInviteQuery('');
       setPlaylistInviteResults([]);
       setPlaylistInviteUsers([]);
@@ -4533,60 +4624,30 @@ function ProfilePage() {
     }) : current);
   };
 
-  const normalizedSocialListQuery = normalizeGenre(socialListQuery);
-  const visibleSocialUsers = socialUsers.filter((person) => (
-    normalizeGenre(`${person.full_name} ${person.username}`).includes(normalizedSocialListQuery)
-  ));
-  const normalizedProfileReviewQuery = normalizeGenre(profileReviewQuery);
-  const visibleProfileReviews = (profile?.reviews || []).filter((review) => (
-    (!normalizedProfileReviewQuery || normalizeGenre(`${review.release_title} ${review.artist_name} ${review.review_text}`).includes(normalizedProfileReviewQuery))
-    && (profileReviewRatingFilter === 'all' || Number(review.rating || 0) >= Number(profileReviewRatingFilter))
-  ));
-  const normalizedProfilePlaylistQuery = normalizeGenre(profilePlaylistQuery);
-  const visibleProfilePlaylists = (profile?.playlists || []).filter((playlist) => (
-    !normalizedProfilePlaylistQuery
-    || normalizeGenre(`${playlist.name} ${playlist.description}`).includes(normalizedProfilePlaylistQuery)
-  ));
-  const normalizedFavoriteQuery = normalizeGenre(favoriteQuery);
-  const visibleFavorites = (profile?.favorites || []).filter((favorite) => (
-    !normalizedFavoriteQuery
-    || normalizeGenre(`${favorite.track_title} ${favorite.release_title} ${favorite.artist_name}`).includes(normalizedFavoriteQuery)
-  ));
-
-  const profileSocialFeed = useProgressiveList(visibleSocialUsers, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${socialListMode}|${normalizedSocialListQuery}`,
-  });
-  const profileReviewFeed = useProgressiveList(visibleProfileReviews, {
-    initialCount: 10,
-    mobileInitialCount: 6,
-    step: 10,
-    mobileStep: 6,
-    resetKey: `${userId || user?.id}|${activeTab}|${normalizedProfileReviewQuery}|${profileReviewRatingFilter}`,
-  });
-  const profilePlaylistFeed = useProgressiveList(visibleProfilePlaylists, {
-    initialCount: 12,
-    mobileInitialCount: 6,
-    step: 12,
-    mobileStep: 6,
-    resetKey: `${userId || user?.id}|${activeTab}|${normalizedProfilePlaylistQuery}`,
-  });
-  const profileFavoriteFeed = useProgressiveList(visibleFavorites, {
-    initialCount: 12,
-    mobileInitialCount: 6,
-    step: 12,
-    mobileStep: 6,
-    resetKey: `${userId || user?.id}|${activeTab}|${normalizedFavoriteQuery}`,
-  });
-
   if (!profile) return <div className="loading-panel">Carregando perfil…</div>;
 
   const isOwner = Number(user?.id) === Number(profile.user.id);
   const canManageProfile = isOwner && isAccountApproved(user);
   const profileBannerUrl = profile.user.banner_url || 'https://images.unsplash.com/photo-1516280440614-37939bbacd81?auto=format&fit=crop&w=1200&q=80';
+  const normalizedSocialListQuery = normalizeGenre(socialListQuery);
+  const visibleSocialUsers = socialUsers.filter((person) => (
+    normalizeGenre(`${person.full_name} ${person.username}`).includes(normalizedSocialListQuery)
+  ));
+  const normalizedProfileReviewQuery = normalizeGenre(profileReviewQuery);
+  const visibleProfileReviews = profile.reviews.filter((review) => (
+    (!normalizedProfileReviewQuery || normalizeGenre(`${review.release_title} ${review.artist_name} ${review.review_text}`).includes(normalizedProfileReviewQuery))
+    && (profileReviewRatingFilter === 'all' || Number(review.rating || 0) >= Number(profileReviewRatingFilter))
+  ));
+  const normalizedProfilePlaylistQuery = normalizeGenre(profilePlaylistQuery);
+  const visibleProfilePlaylists = profile.playlists.filter((playlist) => (
+    !normalizedProfilePlaylistQuery
+    || normalizeGenre(`${playlist.name} ${playlist.description}`).includes(normalizedProfilePlaylistQuery)
+  ));
+  const normalizedFavoriteQuery = normalizeGenre(favoriteQuery);
+  const visibleFavorites = profile.favorites.filter((favorite) => (
+    !normalizedFavoriteQuery
+    || normalizeGenre(`${favorite.track_title} ${favorite.release_title} ${favorite.artist_name}`).includes(normalizedFavoriteQuery)
+  ));
   const getRelationshipLabel = (person) => {
     if (person.is_following && person.is_follower) return 'Amigos';
     if (person.is_following) return 'Seguindo';
@@ -4651,23 +4712,20 @@ function ProfilePage() {
           ) : socialListError ? (
             <p className="error-text" role="alert">{socialListError}</p>
           ) : visibleSocialUsers.length ? (
-            <>
-              <div className="profile-social-user-list">
-                {profileSocialFeed.visibleItems.map((person) => (
-                  <article key={person.id} className="profile-social-user">
-                    <Link to={`/profile/${person.id}`} className="social-user-link">
-                      <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
-                      <span className="social-user-copy">
-                        <strong>{person.full_name || person.username}</strong>
-                        <small>@{person.username}</small>
-                      </span>
-                    </Link>
-                    <FollowButton userId={person.id} initialFollowing={Boolean(person.followed_by_user)} />
-                  </article>
-                ))}
-              </div>
-              <ProgressiveListTrigger {...profileSocialFeed} label="Carregar mais pessoas" />
-            </>
+            <div className="profile-social-user-list">
+              {visibleSocialUsers.map((person) => (
+                <article key={person.id} className="profile-social-user">
+                  <Link to={`/profile/${person.id}`} className="social-user-link">
+                    <img src={person.avatar_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                    <span className="social-user-copy">
+                      <strong>{person.full_name || person.username}</strong>
+                      <small>@{person.username}</small>
+                    </span>
+                  </Link>
+                  <FollowButton userId={person.id} initialFollowing={Boolean(person.followed_by_user)} />
+                </article>
+              ))}
+            </div>
           ) : socialUsers.length ? (
             <p className="profile-social-list-message">Nenhuma pessoa corresponde à busca.</p>
           ) : (
@@ -4783,20 +4841,17 @@ function ProfilePage() {
             </select>
           </div>
           {visibleProfileReviews.length ? (
-            <>
-              <div className="profile-review-list">
-                {profileReviewFeed.visibleItems.map((review) => (
-                  <article key={review.id} className="profile-review-card glass-panel">
-                    <Link to={`/releases/${review.release_id}`} className="profile-review-artwork" aria-label={`Abrir ${review.release_title}`}>
-                      <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
-                    </Link>
-                    <div className="profile-review-copy">
-                      <div className="profile-review-heading">
-                        <div>
-                          <span className="eyebrow">{review.artist_name || 'Lançamento'}</span>
-                          <Link to={`/releases/${review.release_id}`} className="profile-review-title">{review.release_title}</Link>
-                        </div>
-                        <RatingBadge value={review.rating} />
+            <div className="profile-review-list">
+              {visibleProfileReviews.map((review) => (
+                <article key={review.id} className="profile-review-card glass-panel">
+                  <Link to={`/releases/${review.release_id}`} className="profile-review-artwork" aria-label={`Abrir ${review.release_title}`}>
+                    <img src={review.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                  </Link>
+                  <div className="profile-review-copy">
+                    <div className="profile-review-heading">
+                      <div>
+                        <span className="eyebrow">{review.artist_name || 'Lançamento'}</span>
+                        <Link to={`/releases/${review.release_id}`} className="profile-review-title">{review.release_title}</Link>
                       </div>
                       <p>{review.review_text || 'Sem comentário escrito.'}</p>
                       {review.gif_url && <ReviewGif src={review.gif_url} />}
@@ -4818,11 +4873,21 @@ function ProfilePage() {
                         onDeleted={handleReviewDeleted}
                       />
                     </div>
-                  </article>
-                ))}
-              </div>
-              <ProgressiveListTrigger {...profileReviewFeed} label="Carregar mais avaliações" />
-            </>
+                    <p>{review.review_text || 'Sem comentário escrito.'}</p>
+                    {review.gif_url && <ReviewGif src={review.gif_url} />}
+                    <small>{review.created_at}</small>
+                    <ReviewLikeButton review={review} user={user} />
+                    <ShareReviewButton review={review} user={user} />
+                    <ReviewOwnerActions
+                      review={review}
+                      user={user}
+                      onUpdated={handleReviewUpdated}
+                      onDeleted={handleReviewDeleted}
+                    />
+                  </div>
+                </article>
+              ))}
+            </div>
           ) : profile.reviews.length ? (
             <p className="explore-empty-state">Nenhuma avaliação corresponde aos filtros.</p>
           ) : (
@@ -4878,6 +4943,10 @@ function ProfilePage() {
                     rows={2}
                     disabled={isCreatingPlaylist}
                   />
+                  <label className="playlist-visibility-toggle">
+                    <input type="checkbox" checked={playlistIsPublic} onChange={(event) => setPlaylistIsPublic(event.target.checked)} disabled={isCreatingPlaylist} />
+                    <span><strong>Playlist pública</strong><small>{playlistIsPublic ? 'Todos podem ver' : 'Só você e colaboradores podem ver'}</small></span>
+                  </label>
                   <input
                     type="url"
                     value={playlistCoverUrl}
@@ -4956,25 +5025,22 @@ function ProfilePage() {
             />
           </div>
           {visibleProfilePlaylists.length ? (
-            <>
-              <div className="profile-playlist-grid">
-                {profilePlaylistFeed.visibleItems.map((playlist) => (
-                  <Link to={`/playlists/${playlist.id}`} key={playlist.id} className="profile-playlist-card glass-panel">
-                    <div className="profile-playlist-artwork">
-                      <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
-                      <span aria-hidden="true">♫</span>
-                    </div>
-                    <div className="profile-playlist-copy">
-                      <h3>{playlist.name}</h3>
-                      <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
-                      <small>{Number(playlist.track_count || 0)} {Number(playlist.track_count || 0) === 1 ? 'música' : 'músicas'}</small>
-                    </div>
-                    <span className="profile-playlist-open" aria-hidden="true">↗</span>
-                  </Link>
-                ))}
-              </div>
-              <ProgressiveListTrigger {...profilePlaylistFeed} label="Carregar mais playlists" />
-            </>
+            <div className="profile-playlist-grid">
+              {visibleProfilePlaylists.map((playlist) => (
+                <Link to={`/playlists/${playlist.id}`} key={playlist.id} className="profile-playlist-card glass-panel">
+                  <div className="profile-playlist-artwork">
+                    <img src={playlist.cover_url || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                    <span aria-hidden="true">♫</span>
+                  </div>
+                  <div className="profile-playlist-copy">
+                    <h3>{playlist.name}</h3>
+                    <p>{playlist.description || 'Uma seleção pessoal de músicas.'}</p>
+                    <small>{Number(playlist.track_count || 0)} {Number(playlist.track_count || 0) === 1 ? 'música' : 'músicas'}</small>
+                  </div>
+                  <span className="profile-playlist-open" aria-hidden="true">↗</span>
+                </Link>
+              ))}
+            </div>
           ) : profile.playlists.length ? (
             <p className="explore-empty-state">Nenhuma playlist corresponde à busca.</p>
           ) : (
@@ -5006,23 +5072,20 @@ function ProfilePage() {
             />
           </div>
           {visibleFavorites.length ? (
-            <>
-              <div className="profile-favorite-grid">
-                {profileFavoriteFeed.visibleItems.map((favorite) => (
-                  <Link key={favorite.id} to={`/releases/${favorite.release_id}`} className="profile-favorite-card glass-panel">
-                    <img src={favorite.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} loading="lazy" decoding="async" alt="" />
-                    <div>
-                      <span className="profile-favorite-heart" aria-hidden="true">♥</span>
-                      <h3>{favorite.track_title}</h3>
-                      <p>{favorite.artist_name}</p>
-                      <small>{favorite.release_title}</small>
-                    </div>
-                    <span className="profile-favorite-open" aria-hidden="true">↗</span>
-                  </Link>
-                ))}
-              </div>
-              <ProgressiveListTrigger {...profileFavoriteFeed} label="Carregar mais curtidas" />
-            </>
+            <div className="profile-favorite-grid">
+              {visibleFavorites.map((favorite) => (
+                <Link key={favorite.id} to={`/releases/${favorite.release_id}`} className="profile-favorite-card glass-panel">
+                  <img src={favorite.release_cover || imagePlaceholder} onError={(event) => handleImageError(event, imagePlaceholder)} alt="" />
+                  <div>
+                    <span className="profile-favorite-heart" aria-hidden="true">♥</span>
+                    <h3>{favorite.track_title}</h3>
+                    <p>{favorite.artist_name}</p>
+                    <small>{favorite.release_title}</small>
+                  </div>
+                  <span className="profile-favorite-open" aria-hidden="true">↗</span>
+                </Link>
+              ))}
+            </div>
           ) : profile.favorites.length ? (
             <p className="explore-empty-state">Nenhuma música corresponde à busca.</p>
           ) : (
@@ -5042,15 +5105,32 @@ function ProfilePage() {
 function AuthPage() {
   const { login, user } = useAuth();
   const navigate = useNavigate();
+  const [authSearchParams, setAuthSearchParams] = useSearchParams();
   const [mode, setMode] = useState('login');
   const [form, setForm] = useState({ username: '', full_name: '', email: '', password: '', confirmPassword: '' });
   const [error, setError] = useState('');
   const [registrationApprovalRequired, setRegistrationApprovalRequired] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [resetMessage, setResetMessage] = useState('');
   const [registrationSettingsError, setRegistrationSettingsError] = useState('');
 
   useEffect(() => {
     if (user) navigate('/');
   }, [user, navigate]);
+
+  useEffect(() => {
+    const googleToken = authSearchParams.get('google_token');
+    if (authSearchParams.get('google_error')) setError('Não foi possível configurar ou concluir o login com Google.');
+    if (!googleToken) return;
+    api.get('/auth/me', { headers: { Authorization: `Bearer ${googleToken}` } })
+      .then(({ data }) => { login(googleToken, data.user); navigate('/', { replace: true }); })
+      .catch(() => setError('Não foi possível concluir o login com Google.'));
+    const next = new URLSearchParams(authSearchParams); next.delete('google_token'); next.delete('google_error'); setAuthSearchParams(next, { replace: true });
+  }, [authSearchParams, login, navigate, setAuthSearchParams]);
 
   useEffect(() => {
     let active = true;
@@ -5065,6 +5145,26 @@ function AuthPage() {
 
     return () => { active = false; };
   }, []);
+
+  const requestPasswordReset = async (event) => {
+    event.preventDefault();
+    setError('');
+    try {
+      const { data } = await api.post('/auth/forgot-password', { email: resetEmail });
+      setResetMessage(data.message);
+      if (data.reset_token) setResetToken(data.reset_token);
+    } catch (err) { setError(err.response?.data?.error || 'Não foi possível solicitar a recuperação.'); }
+  };
+
+  const resetPassword = async (event) => {
+    event.preventDefault();
+    try {
+      await api.post('/auth/reset-password', { token: resetToken, password: form.password });
+      setResetMessage('Senha redefinida. Agora você já pode entrar.');
+      setAuthMode('login');
+      setMode('login');
+    } catch (err) { setError(err.response?.data?.error || 'Não foi possível redefinir a senha.'); }
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -5118,7 +5218,17 @@ function AuthPage() {
           <button aria-pressed={mode === 'register'} className={mode === 'register' ? 'active' : ''} onClick={() => { setMode('register'); setError(''); }} type="button">Criar conta</button>
         </div>
 
-        <form onSubmit={submit} className="auth-form">
+        {authMode === 'forgot' ? (
+          <form onSubmit={resetToken ? resetPassword : requestPasswordReset} className="auth-form">
+            <label className="auth-field">{resetToken ? 'Nova senha' : 'E-mail da conta'}
+              {resetToken ? <input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} minLength={6} required /> : <input type="email" value={resetEmail} onChange={(event) => setResetEmail(event.target.value)} placeholder="voce@email.com" required />}
+            </label>
+            {resetMessage && <p className="auth-registration-note" role="status">{resetMessage}</p>}
+            {error && <p className="error-text" role="alert">{error}</p>}
+            <button className="primary-btn auth-submit" type="submit">{resetToken ? 'Salvar nova senha' : 'Enviar recuperação'} <span aria-hidden="true">→</span></button>
+            <button type="button" className="auth-text-button" onClick={() => { setAuthMode('login'); setResetToken(''); setResetMessage(''); setError(''); }}>Voltar para entrar</button>
+          </form>
+        ) : <form onSubmit={submit} className="auth-form">
           {mode === 'register' && (
             <>
               <label className="auth-field">Nome
@@ -5134,12 +5244,12 @@ function AuthPage() {
             <input autoComplete="username" placeholder="Seu nome de usuário" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
           </label>
           <label className="auth-field">Senha
-            <input type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Sua senha" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required />
+            <div className="password-field"><input type={showPassword ? 'text' : 'password'} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Sua senha" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /><button type="button" className="password-toggle" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}>{showPassword ? '◉' : '◌'}</button></div>
           </label>
 
           {mode === 'register' && (
             <label className="auth-field">Confirmar senha
-              <input type="password" autoComplete="new-password" placeholder="Digite a senha novamente" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} required />
+              <div className="password-field"><input type={showConfirmPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="Digite a senha novamente" value={form.confirmPassword} onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })} required /><button type="button" className="password-toggle" onClick={() => setShowConfirmPassword((value) => !value)} aria-label={showConfirmPassword ? 'Ocultar confirmação' : 'Mostrar confirmação'}>{showConfirmPassword ? '◉' : '◌'}</button></div>
             </label>
           )}
 
@@ -5158,7 +5268,9 @@ function AuthPage() {
             {mode === 'login' ? 'Entrar no Musicfy' : 'Criar minha conta'}
             <span aria-hidden="true">→</span>
           </button>
-        </form>
+        </form>}
+
+        {mode === 'login' && <div className="auth-extra-actions"><button type="button" className="auth-text-button" onClick={() => { setAuthMode('forgot'); setError(''); }}>Esqueci minha senha</button><button type="button" className="google-login-btn" onClick={() => { window.location.href = '/api/auth/google'; }}>Continuar com Google</button></div>}
 
         <p className="auth-privacy-note">Sua próxima descoberta musical está a poucos segundos.</p>
       </div>
@@ -5917,48 +6029,6 @@ function AdminPage() {
     !normalizedFeaturedListQuery
     || normalizeGenre(`${featured.title} ${featured.artist_name} ${featured.description}`).includes(normalizedFeaturedListQuery)
   ));
-  const adminArtistsFeed = useProgressiveList(filteredAdminArtists, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${activeAdminSection}|${normalizedArtistListQuery}|${artistListGenre}`,
-  });
-  const adminReleasesFeed = useProgressiveList(filteredAdminReleases, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${activeAdminSection}|${normalizedReleaseListQuery}|${releaseListType}`,
-  });
-  const adminFeaturedFeed = useProgressiveList(filteredFeaturedList, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${activeAdminSection}|${normalizedFeaturedListQuery}`,
-  });
-  const adminApprovalsFeed = useProgressiveList(adminUsers, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: activeAdminSection,
-  });
-  const adminModerationUsersFeed = useProgressiveList(filteredAdminUsers, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${activeAdminSection}|${moderationSearch}|${moderationUserStatus}`,
-  });
-  const adminModerationReviewsFeed = useProgressiveList(filteredAdminReviews, {
-    initialCount: 16,
-    mobileInitialCount: 8,
-    step: 16,
-    mobileStep: 8,
-    resetKey: `${activeAdminSection}|${moderationSearch}|${moderationReviewRating}`,
-  });
   const selectedReleaseGenres = splitGenreNames(releaseForm.genre).map(normalizeGenre);
 
   return (
@@ -6338,9 +6408,9 @@ function AdminPage() {
               </select>
             </div>
             <div className="admin-list-grid">
-              {adminArtistsFeed.visibleItems.map((artist) => (
+              {filteredAdminArtists.map((artist) => (
                 <div key={artist.id} className="admin-list-item">
-                  <img src={artist.image_url || artist.banner_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} loading="lazy" decoding="async" alt="" />
+                  <img src={artist.image_url || artist.banner_url || getArtistFallbackImage(artist)} onError={(event) => handleImageError(event, getArtistFallbackImage(artist))} alt="" />
                   <div className="admin-list-copy">
                     <strong>{artist.name}</strong>
                     <small>{artist.genre_names || artist.genre || 'Sem gênero'}</small>
@@ -6353,7 +6423,6 @@ function AdminPage() {
               ))}
               {!filteredAdminArtists.length && <p className="admin-empty-state">{artistList.length ? 'Nenhum artista corresponde aos filtros.' : 'Nenhum artista cadastrado ainda.'}</p>}
             </div>
-            <ProgressiveListTrigger {...adminArtistsFeed} label="Carregar mais artistas" />
           </div>
 
           <div className="admin-listing-panel glass-panel">
@@ -6374,9 +6443,9 @@ function AdminPage() {
               </select>
             </div>
             <div className="admin-list-grid">
-              {adminReleasesFeed.visibleItems.map((release) => (
+              {filteredAdminReleases.map((release) => (
                 <div key={release.id} className="admin-list-item">
-                  <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} loading="lazy" decoding="async" alt="" />
+                  <img src={release.cover_url || getReleaseFallbackImage(release)} onError={(event) => handleImageError(event, getReleaseFallbackImage(release))} alt="" />
                   <div className="admin-list-copy">
                     <strong>{release.title}</strong>
                     <small>{[release.artist_name, ...(release.featured_artists || []).map((artist) => artist.name)].filter(Boolean).join(' feat. ')} · {release.release_type}</small>
@@ -6389,7 +6458,6 @@ function AdminPage() {
               ))}
               {!filteredAdminReleases.length && <p className="admin-empty-state">{releaseList.length ? 'Nenhum lançamento corresponde aos filtros.' : 'Nenhum lançamento cadastrado ainda.'}</p>}
             </div>
-            <ProgressiveListTrigger {...adminReleasesFeed} label="Carregar mais lançamentos" />
           </div>
         </section>
       )}
@@ -6474,13 +6542,11 @@ function AdminPage() {
           />
         </div>
         <div className="admin-list-grid">
-          {adminFeaturedFeed.visibleItems.map((featured) => (
+          {filteredFeaturedList.map((featured) => (
             <div key={featured.id} className="admin-list-item featured-admin-list-item">
               <img
                 src={featured.banner_url || featured.cover_url || getReleaseFallbackImage(featured)}
                 onError={(event) => handleImageError(event, featured.cover_url || getReleaseFallbackImage(featured))}
-                loading="lazy"
-                decoding="async"
                 alt=""
               />
               <div className="featured-admin-copy">
@@ -6500,7 +6566,6 @@ function AdminPage() {
           ))}
           {!filteredFeaturedList.length && <p className="admin-empty-state">{featuredList.length ? 'Nenhum destaque corresponde à busca.' : 'Nenhum destaque publicado ainda. Use o formulário acima para criar o primeiro.'}</p>}
         </div>
-        <ProgressiveListTrigger {...adminFeaturedFeed} label="Carregar mais destaques" />
           </div>
         </section>
       )}
@@ -6549,14 +6614,12 @@ function AdminPage() {
           <div className="admin-listing-panel glass-panel">
             <div className="admin-list-grid">
               {isLoadingModeration && <p className="admin-empty-state">Carregando perfis pendentes…</p>}
-              {!isLoadingModeration && adminApprovalsFeed.visibleItems.map((adminUser) => (
+              {!isLoadingModeration && adminUsers.map((adminUser) => (
                 <article key={adminUser.id} className="admin-list-item approval-user">
                   <img
                     className="approval-user-avatar"
                     src={adminUser.avatar_url || imagePlaceholder}
                     onError={(event) => handleImageError(event, imagePlaceholder)}
-                    loading="lazy"
-                    decoding="async"
                     alt=""
                   />
                   <div className="admin-list-copy">
@@ -6577,7 +6640,6 @@ function AdminPage() {
                 <p className="admin-empty-state">Não há perfis aguardando aprovação.</p>
               )}
             </div>
-            {!isLoadingModeration && <ProgressiveListTrigger {...adminApprovalsFeed} label="Carregar mais perfis" />}
           </div>
         </section>
       )}
@@ -6614,7 +6676,7 @@ function AdminPage() {
               </div>
               <div className="admin-list-grid">
                 {isLoadingModeration && <p className="admin-empty-state">Carregando perfis…</p>}
-                {!isLoadingModeration && adminModerationUsersFeed.visibleItems.map((adminUser) => (
+                {!isLoadingModeration && filteredAdminUsers.map((adminUser) => (
                   <div key={adminUser.id} className={`admin-list-item moderation-user${adminUser.is_suspended ? ' is-suspended' : ''}`}>
                     <div className="moderation-avatar" aria-hidden="true">
                       {(adminUser.full_name || adminUser.username || '?').slice(0, 1).toLocaleUpperCase()}
@@ -6635,7 +6697,6 @@ function AdminPage() {
                 ))}
                 {!isLoadingModeration && !filteredAdminUsers.length && <p className="admin-empty-state">Nenhum perfil corresponde à busca.</p>}
               </div>
-              {!isLoadingModeration && <ProgressiveListTrigger {...adminModerationUsersFeed} label="Carregar mais perfis" />}
             </div>
 
             <div className="admin-listing-panel glass-panel">
@@ -6651,21 +6712,20 @@ function AdminPage() {
               </div>
               <div className="admin-list-grid">
                 {isLoadingModeration && <p className="admin-empty-state">Carregando resenhas…</p>}
-                {!isLoadingModeration && adminModerationReviewsFeed.visibleItems.map((review) => (
+                {!isLoadingModeration && filteredAdminReviews.map((review) => (
                   <article key={review.id} className="admin-list-item moderation-review">
-                    {review.release_cover ? <img src={review.release_cover} loading="lazy" decoding="async" alt="" /> : <div className="moderation-avatar">♪</div>}
+                    {review.release_cover ? <img src={review.release_cover} alt="" /> : <div className="moderation-avatar">♪</div>}
                     <div className="admin-list-copy">
                       <strong>{review.release_title} · {review.artist_name}</strong>
                       <small>{review.full_name || review.username} · nota {review.rating}/10</small>
                       <p>{review.review_text || 'Resenha sem texto'}</p>
-                      {review.gif_url && <img className="moderation-review-gif" src={review.gif_url} loading="lazy" decoding="async" alt="GIF anexado à resenha" />}
+                      {review.gif_url && <img className="moderation-review-gif" src={review.gif_url} alt="GIF anexado à resenha" />}
                     </div>
                     <button type="button" className="danger-btn compact-btn" onClick={() => handleAdminReviewDelete(review)}>Remover resenha</button>
                   </article>
                 ))}
                 {!isLoadingModeration && !filteredAdminReviews.length && <p className="admin-empty-state">Nenhuma resenha corresponde à busca.</p>}
               </div>
-              {!isLoadingModeration && <ProgressiveListTrigger {...adminModerationReviewsFeed} label="Carregar mais resenhas" />}
             </div>
           </div>
         </section>
