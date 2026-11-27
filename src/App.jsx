@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, NavLink, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import adelaProfileImage from './img/artist/adéla/icons/adela_profile.jpg';
@@ -1280,7 +1281,6 @@ function HomePage() {
           onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
         />
         <ShareReviewButton review={review} user={user} />
-        <StoryShareButton review={review} />
         <ReviewOwnerActions
           review={review}
           user={user}
@@ -1815,22 +1815,8 @@ function ReviewLikeButton({ review, user, onChange }) {
 }
 
 function ShareReviewButton({ review, user }) {
-  if (!user || !isAccountApproved(user)) return null;
-
-  return (
-    <Link
-      className="review-share-link"
-      to={`/chat?review=${encodeURIComponent(review.id)}`}
-      aria-label={`Compartilhar resenha de ${review.release_title || 'lançamento'} no chat`}
-    >
-      <span aria-hidden="true">↗</span>
-      Compartilhar
-    </Link>
-  );
-}
-
-function StoryShareButton({ review }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [shareMode, setShareMode] = useState('external');
   const [themeId, setThemeId] = useState('aura');
   const [showQuote, setShowQuote] = useState(true);
   const [previewUrl, setPreviewUrl] = useState('');
@@ -1839,12 +1825,21 @@ function StoryShareButton({ review }) {
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
+  const [recipientQuery, setRecipientQuery] = useState('');
+  const [recipients, setRecipients] = useState([]);
+  const [isLoadingRecipients, setIsLoadingRecipients] = useState(false);
+  const [internalNote, setInternalNote] = useState('');
+  const [sendingUserId, setSendingUserId] = useState(null);
+  const [sentUserIds, setSentUserIds] = useState([]);
+
+  const canShareInternally = Boolean(user && isAccountApproved(user));
+  const cardAccent = review?.accent_color || review?.artist_accent_color || '#31b6c5';
+
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || shareMode !== 'external') return undefined;
     let active = true;
     setIsGenerating(true);
     setErrorMessage('');
-    setStatusMessage('');
 
     renderStoryCard({
       review,
@@ -1868,16 +1863,61 @@ function StoryShareButton({ review }) {
     return () => {
       active = false;
     };
-  }, [isOpen, review, themeId, showQuote]);
+  }, [isOpen, shareMode, review, themeId, showQuote]);
+
+  useEffect(() => {
+    if (!isOpen || shareMode !== 'internal' || !canShareInternally) return undefined;
+    const trimmed = recipientQuery.trim();
+    if (trimmed.length === 1) {
+      setRecipients([]);
+      setIsLoadingRecipients(false);
+      return undefined;
+    }
+
+    let active = true;
+    setIsLoadingRecipients(true);
+    setErrorMessage('');
+    const timer = window.setTimeout(() => {
+      api.get('/users', { params: trimmed ? { q: trimmed } : {} })
+        .then((response) => {
+          if (active) setRecipients(response.data || []);
+        })
+        .catch((error) => {
+          if (active) {
+            setRecipients([]);
+            setErrorMessage(error.response?.data?.error || 'Não foi possível carregar seus seguidores.');
+          }
+        })
+        .finally(() => {
+          if (active) setIsLoadingRecipients(false);
+        });
+    }, trimmed ? 220 : 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, shareMode, canShareInternally, recipientQuery]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') setIsOpen(false);
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [isOpen]);
+
+  const openModal = () => {
+    setStatusMessage('');
+    setErrorMessage('');
+    setIsOpen(true);
+  };
 
   const slugName = String(review?.release_title || 'resenha')
     .toLowerCase()
@@ -1937,19 +1977,45 @@ function StoryShareButton({ review }) {
     }
   };
 
+  const sendToFollower = async (person) => {
+    if (!canShareInternally || sendingUserId) return;
+    setSendingUserId(person.id);
+    setErrorMessage('');
+    setStatusMessage('');
+    try {
+      await api.post(`/messages/${person.id}`, {
+        body: internalNote.trim(),
+        review_id: review.id,
+      });
+      setSentUserIds((current) => (current.includes(person.id) ? current : [...current, person.id]));
+      setStatusMessage(`Resenha enviada para @${person.username}!`);
+    } catch (error) {
+      setErrorMessage(error.response?.data?.error || 'Não foi possível enviar a resenha agora.');
+    } finally {
+      setSendingUserId(null);
+    }
+  };
+
+  const getRelationTag = (person) => {
+    if (person.is_following && person.is_follower) return 'Amigos';
+    if (person.is_follower) return 'Segue você';
+    if (person.is_following) return 'Seguindo';
+    return 'Comunidade';
+  };
+
   return (
     <>
       <button
         type="button"
-        className="story-share-btn"
-        onClick={() => setIsOpen(true)}
-        aria-label={`Gerar cartão de Story para a resenha de ${review?.release_title || 'lançamento'}`}
+        className="review-share-link"
+        onClick={openModal}
+        aria-label={`Compartilhar resenha de ${review?.release_title || 'lançamento'}`}
       >
-        <span aria-hidden="true">✦</span>
-        Story
+        <span aria-hidden="true">↗</span>
+        Compartilhar
       </button>
 
-      {isOpen && (
+      {isOpen && typeof document !== 'undefined' && createPortal(
         <div
           className="story-share-backdrop"
           role="presentation"
@@ -1957,92 +2023,233 @@ function StoryShareButton({ review }) {
             if (event.target === event.currentTarget) setIsOpen(false);
           }}
         >
-          <section className="story-share-modal glass-panel" role="dialog" aria-modal="true" aria-labelledby="story-share-title">
+          <section
+            className="story-share-modal"
+            style={{ '--story-accent': cardAccent }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="story-share-title"
+          >
             <header className="story-share-header">
               <div>
-                <p className="eyebrow">Instagram Stories · 9:16</p>
-                <h2 id="story-share-title">Compartilhar cartão da resenha</h2>
+                <p className="eyebrow">Compartilhar resenha</p>
+                <h2 id="story-share-title">{review?.release_title || 'Lançamento'} · {review?.artist_name || 'Musicfy'}</h2>
               </div>
-              <button type="button" className="story-share-close" onClick={() => setIsOpen(false)} aria-label="Fechar janela de Story">
+              <button type="button" className="story-share-close" onClick={() => setIsOpen(false)} aria-label="Fechar janela de compartilhamento">
                 <span aria-hidden="true">×</span>
               </button>
             </header>
 
-            <div className="story-share-layout">
-              <div className="story-share-preview-frame">
-                {previewUrl ? (
-                  <img src={previewUrl} alt={`Prévia do cartão de Story para ${review?.release_title || 'resenha'}`} />
-                ) : (
-                  <div className="story-share-placeholder">Gerando cartão…</div>
-                )}
-                {isGenerating && <span className="story-share-generating">Atualizando…</span>}
-              </div>
+            <div className="share-destination-tabs" role="tablist" aria-label="Como compartilhar">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={shareMode === 'external'}
+                className={`share-destination-tab${shareMode === 'external' ? ' is-active' : ''}`}
+                onClick={() => {
+                  setShareMode('external');
+                  setStatusMessage('');
+                  setErrorMessage('');
+                }}
+              >
+                <strong>✦ Externo (Instagram Stories)</strong>
+                <small>Cartão 9:16 aesthetic para postar ou baixar</small>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={shareMode === 'internal'}
+                className={`share-destination-tab${shareMode === 'internal' ? ' is-active' : ''}`}
+                onClick={() => {
+                  setShareMode('internal');
+                  setStatusMessage('');
+                  setErrorMessage('');
+                }}
+              >
+                <strong>↗ Seguidores (No site)</strong>
+                <small>Envie pelo chat interno do Musicfy</small>
+              </button>
+            </div>
 
-              <div className="story-share-controls">
-                <div className="story-control-group">
-                  <span className="story-control-label">Visual do cartão</span>
-                  <div className="story-theme-pills" role="group" aria-label="Estilo do cartão">
-                    {STORY_THEMES.map((theme) => (
-                      <button
-                        key={theme.id}
-                        type="button"
-                        className={`story-theme-pill${themeId === theme.id ? ' is-active' : ''}`}
-                        aria-pressed={themeId === theme.id}
-                        onClick={() => setThemeId(theme.id)}
-                      >
-                        <strong>{theme.label}</strong>
-                        <small>{theme.description}</small>
-                      </button>
-                    ))}
+            {shareMode === 'external' ? (
+              <div className="story-share-layout">
+                <div className="story-share-preview-frame">
+                  {previewUrl ? (
+                    <img src={previewUrl} alt={`Prévia do cartão de Story para ${review?.release_title || 'resenha'}`} />
+                  ) : (
+                    <div className="story-share-placeholder">Gerando cartão…</div>
+                  )}
+                  {isGenerating && <span className="story-share-generating">Atualizando…</span>}
+                </div>
+
+                <div className="story-share-controls">
+                  <div className="story-control-group">
+                    <span className="story-control-label">Visual do cartão</span>
+                    <div className="story-theme-pills" role="group" aria-label="Estilo do cartão">
+                      {STORY_THEMES.map((theme) => (
+                        <button
+                          key={theme.id}
+                          type="button"
+                          className={`story-theme-pill${themeId === theme.id ? ' is-active' : ''}`}
+                          aria-pressed={themeId === theme.id}
+                          onClick={() => setThemeId(theme.id)}
+                        >
+                          <strong>{theme.label}</strong>
+                          <small>{theme.description}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {Boolean(review?.review_text) && (
+                    <label className="story-quote-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showQuote}
+                        onChange={(event) => setShowQuote(event.target.checked)}
+                      />
+                      <span>Incluir trecho da sua resenha no cartão</span>
+                    </label>
+                  )}
+
+                  {errorMessage && <p className="error-text" role="alert">{errorMessage}</p>}
+                  {statusMessage && <p className="admin-notice" role="status">{statusMessage}</p>}
+
+                  <div className="story-share-actions">
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      disabled={isGenerating || !storyBlob}
+                      onClick={shareToStories}
+                    >
+                      Compartilhar nos Stories
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary-btn"
+                      disabled={isGenerating || !storyBlob}
+                      onClick={downloadPng}
+                    >
+                      Baixar imagem (PNG)
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={copyInviteLink}
+                    >
+                      Copiar link para sticker
+                    </button>
+                  </div>
+                  <p className="story-share-hint">
+                    No celular, toque em &ldquo;Compartilhar nos Stories&rdquo; para abrir o menu nativo e escolher o Instagram.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="share-internal-panel">
+                <div className="share-internal-review-summary">
+                  <img
+                    src={review?.release_cover || getReleaseFallbackImage({ title: review?.release_title })}
+                    onError={(event) => handleImageError(event, imagePlaceholder)}
+                    alt=""
+                  />
+                  <div>
+                    <small>RESENHA SELECIONADA · NOTA {review?.rating ?? 0}/10</small>
+                    <strong>{review?.release_title || 'Lançamento'}</strong>
+                    <span>{review?.artist_name || 'Artista'}</span>
                   </div>
                 </div>
 
-                {Boolean(review?.review_text) && (
-                  <label className="story-quote-toggle">
-                    <input
-                      type="checkbox"
-                      checked={showQuote}
-                      onChange={(event) => setShowQuote(event.target.checked)}
-                    />
-                    <span>Incluir trecho da sua resenha no cartão</span>
-                  </label>
+                {!canShareInternally ? (
+                  <div className="share-internal-auth-gate">
+                    <p>
+                      {user
+                        ? 'Sua conta precisa estar aprovada para enviar resenhas no chat interno.'
+                        : 'Entre na sua conta para enviar esta resenha para seus seguidores pelo chat.'}
+                    </p>
+                    {!user && (
+                      <Link to="/auth" className="primary-btn" onClick={() => setIsOpen(false)}>
+                        Entrar no Musicfy
+                      </Link>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="share-internal-fields">
+                      <input
+                        type="text"
+                        value={internalNote}
+                        maxLength={400}
+                        onChange={(event) => setInternalNote(event.target.value)}
+                        placeholder="Mensagem opcional (ex.: Olha essa resenha!)"
+                        aria-label="Mensagem opcional para enviar com a resenha"
+                      />
+                      <input
+                        type="search"
+                        value={recipientQuery}
+                        onChange={(event) => setRecipientQuery(event.target.value)}
+                        placeholder="Buscar seguidor por nome ou @usuário"
+                        aria-label="Buscar pessoa para enviar resenha"
+                      />
+                    </div>
+
+                    {errorMessage && <p className="error-text" role="alert">{errorMessage}</p>}
+                    {statusMessage && <p className="admin-notice" role="status">{statusMessage}</p>}
+
+                    <div className="share-internal-recipients">
+                      {isLoadingRecipients ? (
+                        <p className="share-internal-empty">Buscando seguidores e amigos…</p>
+                      ) : recipientQuery.trim().length === 1 ? (
+                        <p className="share-internal-empty">Digite pelo menos 2 caracteres para buscar.</p>
+                      ) : recipients.length ? (
+                        recipients.slice(0, 12).map((person) => {
+                          const alreadySent = sentUserIds.includes(person.id);
+                          const isSendingThis = sendingUserId === person.id;
+                          return (
+                            <div key={person.id} className="share-recipient-row">
+                              <div className="share-recipient-user">
+                                <img
+                                  src={person.avatar_url || imagePlaceholder}
+                                  onError={(event) => handleImageError(event, imagePlaceholder)}
+                                  alt=""
+                                />
+                                <div>
+                                  <strong>{person.full_name || person.username}</strong>
+                                  <small>@{person.username} · {getRelationTag(person)}</small>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className={alreadySent ? 'secondary-btn compact-btn' : 'primary-btn compact-btn'}
+                                disabled={Boolean(sendingUserId) || alreadySent}
+                                onClick={() => sendToFollower(person)}
+                              >
+                                {alreadySent ? 'Enviado ✓' : isSendingThis ? 'Enviando…' : 'Enviar'}
+                              </button>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <p className="share-internal-empty">Nenhuma pessoa encontrada.</p>
+                      )}
+                    </div>
+
+                    <div className="share-internal-footer">
+                      <Link
+                        to={`/chat?review=${encodeURIComponent(review.id)}`}
+                        className="secondary-btn"
+                        onClick={() => setIsOpen(false)}
+                      >
+                        Abrir chat completo ↗
+                      </Link>
+                    </div>
+                  </>
                 )}
-
-                {errorMessage && <p className="error-text" role="alert">{errorMessage}</p>}
-                {statusMessage && <p className="admin-notice" role="status">{statusMessage}</p>}
-
-                <div className="story-share-actions">
-                  <button
-                    type="button"
-                    className="primary-btn"
-                    disabled={isGenerating || !storyBlob}
-                    onClick={shareToStories}
-                  >
-                    Compartilhar nos Stories
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-btn"
-                    disabled={isGenerating || !storyBlob}
-                    onClick={downloadPng}
-                  >
-                    Baixar imagem (PNG)
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    onClick={copyInviteLink}
-                  >
-                    Copiar link para sticker
-                  </button>
-                </div>
-                <p className="story-share-hint">
-                  No celular, toque em &ldquo;Compartilhar nos Stories&rdquo; para abrir o menu nativo e escolher o Instagram.
-                </p>
               </div>
-            </div>
+            )}
           </section>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
@@ -3820,8 +4027,7 @@ function ReleaseDetailPage() {
                   user={user}
                   onChange={(liked, likeCount) => handleReviewLikeChange(review.id, liked, likeCount)}
                 />
-                <ShareReviewButton review={review} user={user} />
-                <StoryShareButton
+                <ShareReviewButton
                   review={{
                     ...review,
                     release_title: release.title,
@@ -3830,6 +4036,7 @@ function ReleaseDetailPage() {
                     accent_color: release.accent_color,
                     artist_accent_color: release.artist_accent_color,
                   }}
+                  user={user}
                 />
                 <ReviewOwnerActions
                   review={review}
@@ -4595,14 +4802,14 @@ function ProfilePage() {
                       {review.gif_url && <ReviewGif src={review.gif_url} />}
                       <small>{review.created_at}</small>
                       <ReviewLikeButton review={review} user={user} />
-                      <ShareReviewButton review={review} user={user} />
-                      <StoryShareButton
+                      <ShareReviewButton
                         review={{
                           ...review,
                           avatar_url: profile.user.avatar_url,
                           full_name: profile.user.full_name,
                           username: profile.user.username,
                         }}
+                        user={user}
                       />
                       <ReviewOwnerActions
                         review={review}
